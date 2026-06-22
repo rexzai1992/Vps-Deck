@@ -14,11 +14,12 @@ import (
 )
 
 type Config struct {
-	App        AppConfig        `yaml:"app"`
-	Security   SecurityConfig   `yaml:"security"`
-	Paths      PathsConfig      `yaml:"paths"`
-	Monitoring MonitoringConfig `yaml:"monitoring"`
-	Docker     DockerConfig     `yaml:"docker"`
+	App         AppConfig        `yaml:"app"`
+	Security    SecurityConfig   `yaml:"security"`
+	Paths       PathsConfig      `yaml:"paths"`
+	Deployments DeploymentConfig `yaml:"deployments"`
+	Monitoring  MonitoringConfig `yaml:"monitoring"`
+	Docker      DockerConfig     `yaml:"docker"`
 }
 
 type AppConfig struct {
@@ -43,6 +44,12 @@ type PathsConfig struct {
 	BackupDir       string   `yaml:"backup_dir"`
 	AppsDir         string   `yaml:"apps_dir"`
 	SimpleModeRoots []string `yaml:"simple_mode_roots"`
+}
+
+type DeploymentConfig struct {
+	Enabled        bool   `yaml:"enabled"`
+	GitCommand     string `yaml:"git_command"`
+	TimeoutSeconds int    `yaml:"timeout_seconds"`
 }
 
 type MonitoringConfig struct {
@@ -89,6 +96,11 @@ func Default() Config {
 			BackupDir:       "./data/backups",
 			AppsDir:         "./managed-apps",
 			SimpleModeRoots: []string{"./managed-apps"},
+		},
+		Deployments: DeploymentConfig{
+			Enabled:        true,
+			GitCommand:     "git",
+			TimeoutSeconds: 300,
 		},
 		Monitoring: MonitoringConfig{
 			RefreshSeconds: 5,
@@ -150,6 +162,13 @@ func (c *Config) normalize() error {
 	c.Security.SessionLifetime = time.Duration(c.Security.SessionLifetimeHours) * time.Hour
 	if c.Security.LoginRateLimitPerMinute < 1 {
 		c.Security.LoginRateLimitPerMinute = 5
+	}
+	c.Deployments.GitCommand = strings.TrimSpace(c.Deployments.GitCommand)
+	if c.Deployments.Enabled && c.Deployments.GitCommand == "" {
+		return errors.New("deployments.git_command cannot be empty when deployments are enabled")
+	}
+	if c.Deployments.TimeoutSeconds < 10 || c.Deployments.TimeoutSeconds > 1800 {
+		return errors.New("deployments.timeout_seconds must be between 10 and 1800")
 	}
 	if c.Monitoring.RefreshSeconds < 2 || c.Monitoring.RefreshSeconds > 60 {
 		return errors.New("monitoring.refresh_seconds must be between 2 and 60")

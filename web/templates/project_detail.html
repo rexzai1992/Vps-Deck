@@ -10,34 +10,67 @@
       {{template "alerts" .}}
       <a class="back-link" href="/projects">← Back to projects</a>
       <div class="page-heading">
-        <div class="heading-with-icon"><div class="app-icon app-icon-large">{{initial .Data.Name}}</div><div><p class="eyebrow">{{.Data.Type}}</p><h1>{{.Data.Name}}</h1><p class="muted">{{.Data.WorkingDir}}</p></div></div>
-        <span class="status status-{{.Data.Status}}"><i></i>{{.Data.Status}}</span>
+        <div class="heading-with-icon"><div class="app-icon app-icon-large">{{initial .Data.Project.Name}}</div><div><p class="eyebrow">{{.Data.Project.Type}}</p><h1>{{.Data.Project.Name}}</h1><p class="muted">{{.Data.Project.WorkingDir}}</p></div></div>
+        <span class="status status-{{.Data.Project.Status}}"><i></i>{{.Data.Project.Status}}</span>
       </div>
       <div class="action-row">
-        <button class="button button-primary" disabled title="Coming in the next Phase 1 slice">Deploy Now</button>
-        <a class="button" href="/projects/{{.Data.ID}}/files">Files</a>
-        <button class="button" disabled title="Coming in the next Phase 1 slice">Logs</button>
-        <a class="button" href="/projects/{{.Data.ID}}/env">Environment</a>
+        {{if and .Data.HasSource .Data.DeploymentsEnabled}}
+        <form method="post" action="/projects/{{.Data.Project.ID}}/deploy" data-confirm="Pull and deploy the latest {{.Data.Source.Branch}} branch?">
+          <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+          <button class="button button-primary" type="submit">Deploy latest</button>
+        </form>
+        {{else}}<button class="button button-primary" disabled title="Connect this project to GitHub first">Deploy latest</button>{{end}}
+        <a class="button" href="/projects/{{.Data.Project.ID}}/files">Files</a>
+        <a class="button" href="/projects/{{.Data.Project.ID}}/env">Environment</a>
       </div>
       <div class="two-column">
         <section class="panel"><div class="panel-heading"><div><h2>Project details</h2><p>Registered configuration</p></div></div>
           <dl class="detail-list">
-            <div><dt>Type</dt><dd>{{.Data.Type}}</dd></div>
-            <div><dt>Folder</dt><dd><code>{{.Data.WorkingDir}}</code></dd></div>
-            <div><dt>Domain</dt><dd>{{if .Data.Domain}}{{.Data.Domain}}{{else}}Not connected{{end}}</dd></div>
-            <div><dt>Port</dt><dd>{{if .Data.Port}}{{.Data.Port}}{{else}}Not set{{end}}</dd></div>
-            <div><dt>Health check</dt><dd>{{if .Data.HealthcheckURL}}{{.Data.HealthcheckURL}}{{else}}Not configured{{end}}</dd></div>
-            <div><dt>Added</dt><dd>{{.Data.CreatedAt.Format "2 Jan 2006, 15:04"}}</dd></div>
+            <div><dt>Type</dt><dd>{{.Data.Project.Type}}</dd></div>
+            <div><dt>Folder</dt><dd><code>{{.Data.Project.WorkingDir}}</code></dd></div>
+            <div><dt>Domain</dt><dd>{{if .Data.Project.Domain}}{{.Data.Project.Domain}}{{else}}Not connected{{end}}</dd></div>
+            <div><dt>Port</dt><dd>{{if .Data.Project.Port}}{{.Data.Project.Port}}{{else}}Not set{{end}}</dd></div>
+            <div><dt>Health check</dt><dd>{{if .Data.Project.HealthcheckURL}}{{.Data.Project.HealthcheckURL}}{{else}}Not configured{{end}}</dd></div>
+            <div><dt>Added</dt><dd>{{.Data.Project.CreatedAt.Format "2 Jan 2006, 15:04"}}</dd></div>
           </dl>
         </section>
-        <section class="panel danger-zone"><div class="panel-heading"><div><h2>Unregister project</h2><p>This only removes it from VPSDeck.</p></div></div>
-          <p>Your project folder and every file inside it will stay untouched.</p>
-          <form method="post" action="/projects/{{.Data.ID}}/delete" data-confirm="Unregister this project? Its files will not be deleted.">
-            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-            <button class="button button-danger" type="submit">Unregister project</button>
-          </form>
+        <section class="panel source-panel">
+          <div class="panel-heading"><div><h2>GitHub source</h2><p>Repository and deployment settings</p></div>{{if .Data.HasSource}}<span class="status status-online"><i></i>connected</span>{{end}}</div>
+          {{if .Data.HasSource}}
+          <dl class="detail-list">
+            <div><dt>Repository</dt><dd><a class="source-link" href="{{githubweb .Data.Source.RepositoryURL}}" target="_blank" rel="noreferrer">{{githubweb .Data.Source.RepositoryURL}}</a></dd></div>
+            <div><dt>Branch</dt><dd><code>{{.Data.Source.Branch}}</code></dd></div>
+            <div><dt>Mode</dt><dd>{{if eq .Data.Source.DeployMode "docker-compose"}}Git + Docker Compose{{else}}Git sync{{end}}</dd></div>
+            <div><dt>Current revision</dt><dd>{{if .Data.Source.LastCommit}}<code>{{shortcommit .Data.Source.LastCommit}}</code>{{else}}Unknown{{end}}</dd></div>
+            <div><dt>Last deployed</dt><dd>{{if .Data.Source.LastDeployedAt}}{{timeago .Data.Source.LastDeployedAt}}{{else}}Never{{end}}</dd></div>
+          </dl>
+          {{else}}
+          <div class="empty-source"><p>This folder was registered directly and is not connected to a GitHub deployment source.</p><a class="button" href="/projects/new">Add from GitHub</a></div>
+          {{end}}
         </section>
       </div>
+
+      <section class="panel deployment-history">
+        <div class="panel-heading"><div><h2>Deployment history</h2><p>Audited Git clone and deploy results</p></div><a class="button button-small" href="/deployments">View all</a></div>
+        {{if .Data.Deployments}}
+        <div class="deployment-list">
+          {{range .Data.Deployments}}
+          <details class="deployment-item">
+            <summary><span><strong>{{.Action}}</strong><small>{{.CreatedAt.Format "2 Jan 2006, 15:04"}}</small></span><span class="deployment-revision">{{if .CommitAfter}}{{shortcommit .CommitAfter}}{{else}}—{{end}}</span><span class="status status-{{.State}}"><i></i>{{.State}}</span></summary>
+            <div class="deployment-output">{{if .Error}}<div class="alert alert-error">{{.Error}}</div>{{end}}{{if .Output}}<pre>{{.Output}}</pre>{{else}}<p class="muted">No command output was recorded.</p>{{end}}</div>
+          </details>
+          {{end}}
+        </div>
+        {{else}}<p class="muted">No deployments have been recorded for this project.</p>{{end}}
+      </section>
+
+      <section class="panel danger-zone"><div class="panel-heading"><div><h2>Unregister project</h2><p>This only removes it from VPSDeck.</p></div></div>
+        <p>Your project folder and every file inside it will stay untouched.</p>
+        <form method="post" action="/projects/{{.Data.Project.ID}}/delete" data-confirm="Unregister this project? Its files will not be deleted.">
+          <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+          <button class="button button-danger" type="submit">Unregister project</button>
+        </form>
+      </section>
     </section>
   </main>
 </body>

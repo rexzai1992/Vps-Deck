@@ -6,7 +6,7 @@
     <a class="{{if eq .Active "projects"}}active{{end}}" href="/projects"><span>◇</span>Projects</a>
     <a href="/projects/new"><span>＋</span>Add Project</a>
     <div class="nav-label">MANAGE</div>
-    <a class="disabled" title="Coming soon"><span>⇅</span>Deployments</a>
+    <a class="{{if eq .Active "deployments"}}active{{end}}" href="/deployments"><span>⇅</span>Deployments</a>
     <a class="{{if eq .Active "files"}}active{{end}}" href="/files"><span>□</span>Files</a>
     <a class="disabled" title="Coming soon"><span>◎</span>Domains</a>
     <a class="disabled" title="Coming soon"><span>≡</span>Logs</a>

@@ -129,6 +129,11 @@ paths:
     - /srv
     - /home/apps
 
+deployments:
+  enabled: true
+  git_command: git
+  timeout_seconds: 300
+
 monitoring:
   refresh_seconds: 5
   ports:

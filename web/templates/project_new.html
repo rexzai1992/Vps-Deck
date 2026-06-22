@@ -6,25 +6,53 @@
   {{template "sidebar" .}}
   <main class="main">
     {{template "topbar" .}}
-    <section class="content narrow">
+    <section class="content">
       {{template "alerts" .}}
       <a class="back-link" href="/projects">← Back to projects</a>
-      <div class="page-heading"><div><p class="eyebrow">ADD PROJECT</p><h1>Register an existing folder</h1><p class="muted">VPSDeck records the project. It does not move or change its files.</p></div></div>
-      <form method="post" action="/projects" class="panel form-panel">
-        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-        <div class="form-grid">
-          <label><span>Project name</span><input name="name" placeholder="My API" maxlength="100" required><small>A friendly name shown in the dashboard.</small></label>
-          <label><span>Project type</span><select name="type"><option value="auto">Auto-detect</option><option value="docker-compose">Docker Compose</option><option value="docker">Dockerfile</option><option value="nodejs">Node.js</option><option value="python">Python</option><option value="golang">Go</option><option value="static">Static website</option><option value="systemd">systemd service</option><option value="custom">Custom</option></select></label>
-          <label class="span-two"><span>Folder location</span>
-            <div class="folder-input"><input name="working_dir" data-folder-value placeholder="Choose a project folder" readonly required><button class="button" type="button" data-folder-open>Browse folders</button></div>
-            <small>Browse approved root: {{range $index, $root := .Data.Roots}}{{if $index}}, {{end}}<code>{{$root}}</code>{{end}}</small>
-          </label>
-          <label><span>Domain <em>optional</em></span><input name="domain" placeholder="api.example.com"></label>
-          <label><span>Local port <em>optional</em></span><input name="port" type="number" min="1" max="65535" placeholder="3000"></label>
-          <label class="span-two"><span>Health-check URL <em>optional</em></span><input name="healthcheck_url" type="url" placeholder="http://127.0.0.1:3000/health"></label>
-        </div>
-        <div class="form-actions"><a class="button" href="/projects">Cancel</a><button class="button button-primary" type="submit">Register project</button></div>
-      </form>
+      <div class="page-heading"><div><p class="eyebrow">ADD PROJECT</p><h1>Choose where your app comes from</h1><p class="muted">Clone and deploy a GitHub repository, or register a folder already on this server.</p></div></div>
+
+      <div class="import-grid">
+        <section class="panel import-panel">
+          <div class="import-panel-title"><div class="provider-icon">GH</div><div><p class="eyebrow">RECOMMENDED</p><h2>Deploy from GitHub</h2><p>VPSDeck clones the repository into <code>{{.Data.AppsDir}}</code>, then opens the visual environment editor.</p></div></div>
+          {{if .Data.DeploymentsEnabled}}
+          <form method="post" action="/projects/import/github">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <div class="form-grid">
+              <label class="span-two"><span>GitHub repository URL</span><input name="repository_url" type="url" placeholder="https://github.com/owner/repository" required><small>Public HTTPS repositories are supported. Credentials in URLs are rejected.</small></label>
+              <label><span>Project name</span><input name="name" placeholder="My application" maxlength="100" required></label>
+              <label><span>Branch</span><input name="branch" value="main" maxlength="200" required></label>
+              <label><span>Server folder <em>optional</em></span><input name="directory" placeholder="Uses repository name"><small>Created inside <code>{{.Data.AppsDir}}</code>.</small></label>
+              <label><span>Deployment mode</span><select name="deploy_mode"><option value="git">Sync Git code only</option><option value="docker-compose">Git + Docker Compose rebuild</option></select></label>
+              <label><span>Domain <em>optional</em></span><input name="domain" placeholder="app.example.com"></label>
+              <label><span>Local port <em>optional</em></span><input name="port" type="number" min="1" max="65535" placeholder="3000"></label>
+              <label class="span-two"><span>Health-check URL <em>optional</em></span><input name="healthcheck_url" type="url" placeholder="http://127.0.0.1:3000/health"></label>
+            </div>
+            <div class="form-actions"><button class="button button-primary" type="submit">Clone GitHub project</button></div>
+          </form>
+          {{else}}
+          <div class="alert alert-warning">GitHub deployments are disabled in the VPSDeck configuration.</div>
+          {{end}}
+        </section>
+
+        <section class="panel import-panel">
+          <div class="import-panel-title"><div class="provider-icon folder-provider">□</div><div><p class="eyebrow">EXISTING SERVER APP</p><h2>Register a folder</h2><p>VPSDeck records an existing folder without moving or changing its files.</p></div></div>
+          <form method="post" action="/projects">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <div class="form-grid">
+              <label><span>Project name</span><input name="name" placeholder="My API" maxlength="100" required></label>
+              <label><span>Project type</span><select name="type"><option value="auto">Auto-detect</option><option value="docker-compose">Docker Compose</option><option value="docker">Dockerfile</option><option value="nodejs">Node.js</option><option value="python">Python</option><option value="golang">Go</option><option value="static">Static website</option><option value="systemd">systemd service</option><option value="custom">Custom</option></select></label>
+              <label class="span-two"><span>Folder location</span>
+                <div class="folder-input"><input name="working_dir" data-folder-value placeholder="Choose a project folder" readonly required><button class="button" type="button" data-folder-open>Browse folders</button></div>
+                <small>Approved roots: {{range $index, $root := .Data.Roots}}{{if $index}}, {{end}}<code>{{$root}}</code>{{end}}</small>
+              </label>
+              <label><span>Domain <em>optional</em></span><input name="domain" placeholder="api.example.com"></label>
+              <label><span>Local port <em>optional</em></span><input name="port" type="number" min="1" max="65535" placeholder="3000"></label>
+              <label class="span-two"><span>Health-check URL <em>optional</em></span><input name="healthcheck_url" type="url" placeholder="http://127.0.0.1:3000/health"></label>
+            </div>
+            <div class="form-actions"><button class="button" type="submit">Register existing folder</button></div>
+          </form>
+        </section>
+      </div>
     </section>
   </main>
   <dialog class="folder-dialog" data-folder-dialog>
