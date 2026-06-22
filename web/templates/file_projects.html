@@ -1,0 +1,30 @@
+{{define "file_projects.html"}}
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{.Title}} · VPSDeck</title><link rel="stylesheet" href="/static/app.css"><script defer src="/static/app.js"></script></head>
+<body>
+  {{template "sidebar" .}}
+  <main class="main">
+    {{template "topbar" .}}
+    <section class="content">
+      {{template "alerts" .}}
+      <div class="page-heading"><div><p class="eyebrow">FILE MANAGER</p><h1>Choose a project</h1><p class="muted">Simple Mode keeps file access safely inside registered project folders.</p></div><a class="button button-primary" href="/projects/new">+ Add project</a></div>
+      {{if .Data}}
+      <div class="project-grid">
+        {{range .Data}}
+        <article class="project-card">
+          <div class="project-card-top"><div class="app-icon">{{initial .Name}}</div><span class="status status-unknown"><i></i>{{.Status}}</span></div>
+          <h2>{{.Name}}</h2><p class="project-type">{{.Type}}</p>
+          <dl class="card-details"><div><dt>Project folder</dt><dd title="{{.WorkingDir}}">{{.WorkingDir}}</dd></div></dl>
+          <a class="button button-primary button-wide" href="/projects/{{.ID}}/files">Open files</a>
+        </article>
+        {{end}}
+      </div>
+      {{else}}
+      <div class="panel empty"><div class="empty-icon">□</div><h2>No project folders available</h2><p>Register a project first, then its files will be available here.</p><a class="button button-primary" href="/projects/new">Add existing project</a></div>
+      {{end}}
+    </section>
+  </main>
+</body>
+</html>
+{{end}}

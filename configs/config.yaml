@@ -1,0 +1,31 @@
+app:
+  name: VPSDeck
+  host: 127.0.0.1
+  port: 8080
+  base_url: http://127.0.0.1:8080
+  environment: development
+
+security:
+  cookie_secure: false
+  session_lifetime_hours: 12
+  login_rate_limit_per_minute: 5
+
+paths:
+  database: ./data/vpsdeck.db
+  data_dir: ./data
+  log_dir: ./data/logs
+  backup_dir: ./data/backups
+  apps_dir: ./managed-apps
+  simple_mode_roots:
+    - ./managed-apps
+
+monitoring:
+  refresh_seconds: 5
+
+  ports:
+    enabled: true
+
+  ollama:
+    enabled: true
+    base_url: http://127.0.0.1:11434
+    timeout_seconds: 2

@@ -1,0 +1,63 @@
+{{define "dashboard.html"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}} · VPSDeck</title><link rel="stylesheet" href="/static/app.css"><script defer src="/static/app.js"></script>
+</head>
+<body>
+  {{template "sidebar" .}}
+  <main class="main">
+    {{template "topbar" .}}
+    <section class="content">
+      {{template "alerts" .}}
+      <div class="page-heading">
+        <div><p class="eyebrow">SERVER OVERVIEW</p><h1>Everything looks calm.</h1><p class="muted">Live health from this machine, collected {{.Data.CollectedAt.Format "15:04:05"}}.</p></div>
+        <span class="status status-running"><i></i> Healthy</span>
+      </div>
+      <div class="metric-grid">
+        <article class="metric"><div class="metric-icon violet">CPU</div><div><span>CPU usage</span><strong>{{percent .Data.CPUPercent}}</strong></div><progress value="{{printf "%.1f" .Data.CPUPercent}}" max="100">{{percent .Data.CPUPercent}}</progress></article>
+        <article class="metric"><div class="metric-icon cyan">RAM</div><div><span>Memory</span><strong>{{bytes .Data.MemoryUsed}}</strong><small>of {{bytes .Data.MemoryTotal}}</small></div><progress value="{{printf "%.1f" .Data.MemoryPercent}}" max="100">{{percent .Data.MemoryPercent}}</progress></article>
+        <article class="metric"><div class="metric-icon amber">SSD</div><div><span>Storage</span><strong>{{bytes .Data.DiskUsed}}</strong><small>of {{bytes .Data.DiskTotal}}</small></div><progress value="{{printf "%.1f" .Data.DiskPercent}}" max="100">{{percent .Data.DiskPercent}}</progress></article>
+        <article class="metric"><div class="metric-icon green">UP</div><div><span>Uptime</span><strong>{{duration .Data.Uptime}}</strong><small>No restart detected</small></div></article>
+      </div>
+      <div class="monitor-summary-grid" data-monitor-dashboard data-refresh="{{.Data.RefreshSeconds}}">
+        <a class="monitor-summary panel" href="/network/ports">
+          <div class="monitor-summary-top"><div class="metric-icon cyan">NET</div><span class="status status-{{.Data.Ports.Status}}" data-dashboard-ports-status><i></i>{{.Data.Ports.Status}}</span></div>
+          <div><span class="muted">Running ports</span><strong data-dashboard-ports-total>{{.Data.Ports.TotalCount}}</strong></div>
+          <p><span data-dashboard-ports-tcp>{{.Data.Ports.TCPCount}}</span> TCP · <span data-dashboard-ports-udp>{{.Data.Ports.UDPCount}}</span> UDP · <span data-dashboard-ports-missing>{{len .Data.Ports.MissingProjectPorts}}</span> project warning(s)</p>
+        </a>
+        <a class="monitor-summary panel" href="/ollama">
+          <div class="monitor-summary-top"><div class="metric-icon violet">AI</div><span class="status status-{{.Data.Ollama.Status}}" data-dashboard-ollama-status><i></i>{{.Data.Ollama.Status}}</span></div>
+          <div><span class="muted">Ollama</span><strong data-dashboard-ollama-version>{{if .Data.Ollama.Version}}v{{.Data.Ollama.Version}}{{else}}Unavailable{{end}}</strong></div>
+          <p><span data-dashboard-ollama-installed>{{.Data.Ollama.InstalledCount}}</span> installed · <span data-dashboard-ollama-running>{{.Data.Ollama.RunningCount}}</span> loaded</p>
+        </a>
+      </div>
+      <div class="two-column">
+        <section class="panel">
+          <div class="panel-heading"><div><h2>Projects</h2><p>Your registered applications</p></div><a class="button button-small" href="/projects">View all</a></div>
+          <div class="project-summary">
+            <div><strong>{{.Data.ProjectCounts.Total}}</strong><span>Total</span></div>
+            <div><strong class="green-text">{{.Data.ProjectCounts.Running}}</strong><span>Running</span></div>
+            <div><strong>{{.Data.ProjectCounts.Stopped}}</strong><span>Stopped</span></div>
+            <div><strong class="red-text">{{.Data.ProjectCounts.Failed}}</strong><span>Failed</span></div>
+          </div>
+          {{if eq .Data.ProjectCounts.Total 0}}
+          <div class="empty compact"><div class="empty-icon">+</div><h3>No projects registered</h3><p>Add an existing folder to begin managing it.</p><a class="button button-primary" href="/projects/new">Add first project</a></div>
+          {{end}}
+        </section>
+        <section class="panel">
+          <div class="panel-heading"><div><h2>Server identity</h2><p>Useful connection details</p></div></div>
+          <dl class="detail-list">
+            <div><dt>Operating system</dt><dd>{{.Data.OS}}</dd></div>
+            <div><dt>Kernel</dt><dd>{{.Data.Kernel}}</dd></div>
+            <div><dt>Architecture</dt><dd>{{.Data.Architecture}}</dd></div>
+            <div><dt>Local IP</dt><dd><code>{{.Data.LocalIP}}</code></dd></div>
+          </dl>
+        </section>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
+{{end}}

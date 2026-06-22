@@ -1,0 +1,45 @@
+{{define "project_detail.html"}}
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{.Title}} · VPSDeck</title><link rel="stylesheet" href="/static/app.css"><script defer src="/static/app.js"></script></head>
+<body>
+  {{template "sidebar" .}}
+  <main class="main">
+    {{template "topbar" .}}
+    <section class="content">
+      {{template "alerts" .}}
+      <a class="back-link" href="/projects">← Back to projects</a>
+      <div class="page-heading">
+        <div class="heading-with-icon"><div class="app-icon app-icon-large">{{initial .Data.Name}}</div><div><p class="eyebrow">{{.Data.Type}}</p><h1>{{.Data.Name}}</h1><p class="muted">{{.Data.WorkingDir}}</p></div></div>
+        <span class="status status-unknown"><i></i>{{.Data.Status}}</span>
+      </div>
+      <div class="action-row">
+        <button class="button button-primary" disabled title="Coming in the next Phase 1 slice">Deploy Now</button>
+        <a class="button" href="/projects/{{.Data.ID}}/files">Files</a>
+        <button class="button" disabled title="Coming in the next Phase 1 slice">Logs</button>
+        <a class="button" href="/projects/{{.Data.ID}}/env">Environment</a>
+      </div>
+      <div class="two-column">
+        <section class="panel"><div class="panel-heading"><div><h2>Project details</h2><p>Registered configuration</p></div></div>
+          <dl class="detail-list">
+            <div><dt>Type</dt><dd>{{.Data.Type}}</dd></div>
+            <div><dt>Folder</dt><dd><code>{{.Data.WorkingDir}}</code></dd></div>
+            <div><dt>Domain</dt><dd>{{if .Data.Domain}}{{.Data.Domain}}{{else}}Not connected{{end}}</dd></div>
+            <div><dt>Port</dt><dd>{{if .Data.Port}}{{.Data.Port}}{{else}}Not set{{end}}</dd></div>
+            <div><dt>Health check</dt><dd>{{if .Data.HealthcheckURL}}{{.Data.HealthcheckURL}}{{else}}Not configured{{end}}</dd></div>
+            <div><dt>Added</dt><dd>{{.Data.CreatedAt.Format "2 Jan 2006, 15:04"}}</dd></div>
+          </dl>
+        </section>
+        <section class="panel danger-zone"><div class="panel-heading"><div><h2>Unregister project</h2><p>This only removes it from VPSDeck.</p></div></div>
+          <p>Your project folder and every file inside it will stay untouched.</p>
+          <form method="post" action="/projects/{{.Data.ID}}/delete" data-confirm="Unregister this project? Its files will not be deleted.">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <button class="button button-danger" type="submit">Unregister project</button>
+          </form>
+        </section>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
+{{end}}

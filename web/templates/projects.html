@@ -1,0 +1,34 @@
+{{define "projects.html"}}
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{.Title}} · VPSDeck</title><link rel="stylesheet" href="/static/app.css"><script defer src="/static/app.js"></script></head>
+<body>
+  {{template "sidebar" .}}
+  <main class="main">
+    {{template "topbar" .}}
+    <section class="content">
+      {{template "alerts" .}}
+      <div class="page-heading"><div><p class="eyebrow">APPLICATIONS</p><h1>Projects</h1><p class="muted">One place for every app running on this server.</p></div><a class="button button-primary" href="/projects/new">+ Add project</a></div>
+      {{if .Data}}
+      <div class="project-grid">
+        {{range .Data}}
+        <article class="project-card">
+          <div class="project-card-top"><div class="app-icon">{{initial .Name}}</div><span class="status status-unknown"><i></i>{{.Status}}</span></div>
+          <h2>{{.Name}}</h2><p class="project-type">{{.Type}}</p>
+          <dl class="card-details">
+            <div><dt>Folder</dt><dd title="{{.WorkingDir}}">{{.WorkingDir}}</dd></div>
+            {{if .Domain}}<div><dt>Domain</dt><dd>{{.Domain}}</dd></div>{{end}}
+            {{if .Port}}<div><dt>Port</dt><dd>{{.Port}}</dd></div>{{end}}
+          </dl>
+          <a class="button button-wide" href="/projects/{{.ID}}">Open project</a>
+        </article>
+        {{end}}
+      </div>
+      {{else}}
+      <div class="panel empty"><div class="empty-icon">⌁</div><h2>No projects yet</h2><p>Register an existing app folder. VPSDeck will detect its type automatically.</p><a class="button button-primary" href="/projects/new">Add existing project</a></div>
+      {{end}}
+    </section>
+  </main>
+</body>
+</html>
+{{end}}
