@@ -59,3 +59,14 @@ For remote Ollama, prefer a private network, VPN, or authenticated reverse proxy
 When Docker Compose discovery is enabled, the Projects page lists running and stopped Compose stacks found on the server. Importing a detected stack registers its trusted Docker-reported working directory, published host port, and runtime status in VPSDeck.
 
 Read `VPSDECK_PROJECT_CONTEXT.md` before continuing development.
+
+## Install on an Ubuntu VPS
+
+VPSDeck includes a production installer that creates a dedicated system user, builds the Go binary, configures systemd, and adds an isolated Nginx virtual host:
+
+```bash
+git clone https://github.com/rexzai1992/Vps-Deck.git /tmp/vpsdeck-installer
+sudo bash /tmp/vpsdeck-installer/scripts/install.sh
+```
+
+See [`docs/INSTALL.md`](docs/INSTALL.md) for DNS, HTTPS, updates, rollback, permissions, and uninstall instructions.

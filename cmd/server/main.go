@@ -19,6 +19,7 @@ import (
 
 func main() {
 	configPath := flag.String("config", "configs/config.yaml", "path to the VPSDeck YAML configuration")
+	bootstrapOnly := flag.Bool("bootstrap-only", false, "create the initial administrator, then exit")
 	flag.Parse()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
@@ -49,6 +50,10 @@ func main() {
 	}
 	if created {
 		logger.Info("created initial administrator", "username", os.Getenv("VPSDECK_ADMIN_USERNAME"))
+	}
+	if *bootstrapOnly {
+		logger.Info("administrator bootstrap complete", "created", created)
+		return
 	}
 
 	handler, err := webserver.New(cfg, db, authService, logger)
