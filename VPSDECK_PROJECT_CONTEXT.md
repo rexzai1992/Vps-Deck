@@ -612,9 +612,9 @@ Do not build Kubernetes, a full terminal, arbitrary public command execution, or
 
 The first useful version is accepted when an administrator can:
 
-- [ ] Install VPSDeck on a VPS.
-- [ ] Open it in a browser and log in.
-- [ ] See CPU, RAM, storage, and uptime.
+- [x] Install VPSDeck on a VPS.
+- [x] Open it in a browser and log in.
+- [x] See CPU, RAM, storage, and uptime.
 - [ ] Add an existing project.
 - [ ] Upload and edit project files.
 - [ ] Edit `.env`.
@@ -690,10 +690,18 @@ Completed:
 - [x] Imported the live `aigenius-full` stack: 6/6 containers running, healthy web service, localhost port 80, working directory `/Users/cravemac2/aigenius-full`.
 - [x] Port 80 now associates with `aigenius-full` instead of appearing only as the Docker Desktop backend process.
 - [x] Detected the stopped `qparking` Compose stack without importing it.
+- [x] Added a production Ubuntu installer, dedicated `vpsdeck` systemd service, isolated Nginx virtual host, secure one-time administrator bootstrap, update-with-rollback script, uninstaller, and deployment guide.
+- [x] Merged the initial production release through GitHub PR `#1` at commit `83e8a8e1ae185ebaad32653f2cc838dccb0511f0`.
+- [x] Deployed VPSDeck to Ubuntu 24.04 at `13.140.148.77`, bound privately to `127.0.0.1:8080`, with persistent data in `/var/lib/vpsdeck`.
+- [x] Published `https://vps.izzul.xyz` through a proxied Cloudflare A record, an isolated Nginx site, and a Let's Encrypt ECDSA certificate that renews through the enabled Certbot timer.
+- [x] Completed authenticated production smoke testing: login, dashboard, Projects, Ollama page, `/api/monitors/ports`, and `/api/monitors/ollama` all returned successful responses.
+- [x] Confirmed production Docker access for the `vpsdeck` service account and detected the running `qmessage-main` Compose container.
+- [x] Confirmed production monitor data: 12 listening TCP sockets, 2 bound UDP sockets, Ollama `0.30.8`, one installed `qwen2.5:1.5b` model, and no currently loaded model.
 
 In progress:
 
-- VPSDeck is running with Docker Compose discovery on `http://127.0.0.1:8080` (PID 30461).
+- Production VPSDeck is live at `https://vps.izzul.xyz`.
+- The local development instance remains available at `http://127.0.0.1:8080`.
 
 Next action:
 
@@ -772,6 +780,22 @@ Current local configuration:
 - Ollama endpoint: `http://127.0.0.1:11434`
 - Monitor pages: `/network/ports` and `/ollama`
 - Docker Compose discovery: enabled with the `docker` CLI and a 10-second command timeout
+
+Current production deployment:
+
+- Public URL: `https://vps.izzul.xyz`
+- VPS: Ubuntu 24.04, `13.140.148.77`
+- Git release: `main` commit `83e8a8e1ae185ebaad32653f2cc838dccb0511f0`
+- Service: `vpsdeck.service`, enabled and running as the dedicated `vpsdeck` user
+- Private origin: `127.0.0.1:8080`
+- Nginx site: `/etc/nginx/sites-enabled/vpsdeck`
+- Configuration: `/etc/vpsdeck/config.yaml`
+- Database: `/var/lib/vpsdeck/vpsdeck.db`
+- Source checkout: `/opt/vpsdeck/src`
+- Update command: `sudo /opt/vpsdeck/src/scripts/update.sh`
+- Service logs: `sudo journalctl -u vpsdeck -f`
+- TLS certificate expiry: 2026-09-20, with automatic renewal enabled
+- Production Ollama endpoint: `http://127.0.0.1:11434`
 
 ## 19. Implementation Guardrails
 
