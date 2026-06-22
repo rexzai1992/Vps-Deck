@@ -20,6 +20,7 @@ import (
 	"github.com/vpsdeck/vpsdeck/internal/config"
 	"github.com/vpsdeck/vpsdeck/internal/dashboard"
 	"github.com/vpsdeck/vpsdeck/internal/database"
+	"github.com/vpsdeck/vpsdeck/internal/deployments"
 	dockerdiscovery "github.com/vpsdeck/vpsdeck/internal/docker"
 	projectfiles "github.com/vpsdeck/vpsdeck/internal/files"
 	"github.com/vpsdeck/vpsdeck/internal/monitoring"
@@ -40,6 +41,7 @@ type Server struct {
 	projects  *projects.Service
 	files     *projectfiles.Service
 	dashboard *dashboard.Service
+	deploy    *deployments.Service
 	ports     *monitoring.PortService
 	ollama    *monitoring.OllamaService
 	docker    *dockerdiscovery.Discovery
@@ -84,9 +86,10 @@ type EnvEntry struct {
 }
 
 type EnvPageData struct {
-	Project database.Project
-	Entries []EnvEntry
-	Exists  bool
+	Project   database.Project
+	Entries   []EnvEntry
+	Exists    bool
+	HasSource bool
 }
 
 type DashboardPageData struct {
@@ -100,6 +103,20 @@ type DashboardPageData struct {
 type ProjectsPageData struct {
 	Projects []database.Project
 	Docker   dockerdiscovery.Snapshot
+}
+
+type ProjectPageData struct {
+	Project            database.Project
+	Source             database.ProjectSource
+	HasSource          bool
+	Deployments        []database.Deployment
+	DeploymentsEnabled bool
+}
+
+type NewProjectPageData struct {
+	Roots              []string
+	AppsDir            string
+	DeploymentsEnabled bool
 }
 
 type MonitorPageData struct {
@@ -125,7 +142,16 @@ func New(cfg config.Config, db *database.DB, authService *auth.Service, logger *
 		"percent":  func(value float64) string { return fmt.Sprintf("%.1f%%", value) },
 		"timeago":  timeAgo,
 		"initial":  initial,
-		"base":     filepath.Base,
+		"shortcommit": func(value string) string {
+			if len(value) > 8 {
+				return value[:8]
+			}
+			return value
+		},
+		"githubweb": func(value string) string {
+			return strings.TrimSuffix(value, ".git")
+		},
+		"base": filepath.Base,
 		"dir": func(path string) string {
 			dir := filepath.ToSlash(filepath.Dir(filepath.FromSlash(path)))
 			if dir == "." {
@@ -145,6 +171,15 @@ func New(cfg config.Config, db *database.DB, authService *auth.Service, logger *
 		projects:  projectService,
 		files:     projectfiles.NewService(cfg.Paths.BackupDir),
 		dashboard: dashboard.NewService(db),
+		deploy: deployments.NewService(
+			db,
+			projectService,
+			cfg.Paths.AppsDir,
+			cfg.Deployments.Enabled,
+			cfg.Deployments.GitCommand,
+			cfg.Docker.Command,
+			time.Duration(cfg.Deployments.TimeoutSeconds)*time.Second,
+		),
 		ports: monitoring.NewPortService(
 			db,
 			cfg.Monitoring.Ports.Enabled,
@@ -189,9 +224,12 @@ func New(cfg config.Config, db *database.DB, authService *auth.Service, logger *
 	protected.GET("/projects", server.projectsPage)
 	protected.GET("/projects/new", server.newProjectPage)
 	protected.POST("/projects", server.limitBody(1<<20), server.csrfRequired(), server.createProject)
+	protected.POST("/projects/import/github", server.limitBody(1<<20), server.csrfRequired(), server.importGitHub)
 	protected.POST("/projects/import/docker-compose", server.limitBody(1<<20), server.csrfRequired(), server.importDockerCompose)
 	protected.GET("/projects/:id", server.projectPage)
+	protected.POST("/projects/:id/deploy", server.limitBody(1<<20), server.csrfRequired(), server.deployProject)
 	protected.POST("/projects/:id/delete", server.limitBody(1<<20), server.csrfRequired(), server.deleteProject)
+	protected.GET("/deployments", server.deploymentsPage)
 	protected.GET("/files", server.fileProjectsPage)
 	protected.GET("/projects/:id/files", server.filesPage)
 	protected.POST("/projects/:id/files/upload", server.limitBody(100<<20), server.csrfRequired(), server.uploadFile)
@@ -330,9 +368,11 @@ func (s *Server) projectsPage(c *gin.Context) {
 }
 
 func (s *Server) newProjectPage(c *gin.Context) {
-	data := struct {
-		Roots []string
-	}{Roots: s.projects.AllowedRoots()}
+	data := NewProjectPageData{
+		Roots:              s.projects.AllowedRoots(),
+		AppsDir:            s.cfg.Paths.AppsDir,
+		DeploymentsEnabled: s.deploy.Enabled(),
+	}
 	s.renderProtected(c, http.StatusOK, "project_new.html", "Add existing project", "projects", data, "", c.Query("error"))
 }
 
@@ -413,6 +453,35 @@ func (s *Server) createProject(c *gin.Context) {
 	c.Redirect(http.StatusSeeOther, fmt.Sprintf("/projects/%d?success=%s", project.ID, url.QueryEscape("Project registered.")))
 }
 
+func (s *Server) importGitHub(c *gin.Context) {
+	port, err := optionalPort(c.PostForm("port"))
+	if err != nil {
+		s.redirectError(c, "/projects/new", err)
+		return
+	}
+	user := s.mustUser(c)
+	project, err := s.deploy.ImportGitHub(c.Request.Context(), deployments.ImportInput{
+		Name:           c.PostForm("name"),
+		RepositoryURL:  c.PostForm("repository_url"),
+		Branch:         c.PostForm("branch"),
+		Directory:      c.PostForm("directory"),
+		DeployMode:     c.PostForm("deploy_mode"),
+		Domain:         c.PostForm("domain"),
+		Port:           port,
+		HealthcheckURL: c.PostForm("healthcheck_url"),
+	})
+	if err != nil {
+		s.audit(c, &user, "github_import", "repository", "", "Repository URL redacted from failure audit", false, err.Error())
+		s.redirectError(c, "/projects/new", err)
+		return
+	}
+	s.ports.Invalidate()
+	s.audit(c, &user, "github_import", "project", strconv.FormatInt(project.ID, 10),
+		"Cloned GitHub repository into "+project.WorkingDir, true, "")
+	c.Redirect(http.StatusSeeOther, fmt.Sprintf("/projects/%d/env?success=%s", project.ID,
+		url.QueryEscape("GitHub project cloned. Add its environment variables, then deploy when ready.")))
+}
+
 func (s *Server) importDockerCompose(c *gin.Context) {
 	name := strings.TrimSpace(c.PostForm("name"))
 	user := s.mustUser(c)
@@ -447,7 +516,55 @@ func (s *Server) projectPage(c *gin.Context) {
 		c.Status(http.StatusInternalServerError)
 		return
 	}
-	s.renderProtected(c, http.StatusOK, "project_detail.html", project.Name, "projects", project, c.Query("success"), "")
+	data := ProjectPageData{
+		Project:            project,
+		DeploymentsEnabled: s.deploy.Enabled(),
+	}
+	if source, sourceErr := s.deploy.Source(c.Request.Context(), project.ID); sourceErr == nil {
+		data.Source = source
+		data.HasSource = true
+	} else if !database.IsNotFound(sourceErr) {
+		s.logger.Warn("load project source", "project_id", project.ID, "error", sourceErr)
+	}
+	if history, historyErr := s.db.ListProjectDeployments(c.Request.Context(), project.ID, 10); historyErr == nil {
+		data.Deployments = history
+	} else {
+		s.logger.Warn("load project deployments", "project_id", project.ID, "error", historyErr)
+	}
+	s.renderProtected(c, http.StatusOK, "project_detail.html", project.Name, "projects", data, c.Query("success"), c.Query("error"))
+}
+
+func (s *Server) deployProject(c *gin.Context) {
+	project, ok := s.projectForRequest(c)
+	if !ok {
+		return
+	}
+	user := s.mustUser(c)
+	deployment, err := s.deploy.Deploy(c.Request.Context(), project)
+	if err != nil {
+		s.audit(c, &user, "project_deploy", "project", strconv.FormatInt(project.ID, 10),
+			"Deployment "+strconv.FormatInt(deployment.ID, 10), false, err.Error())
+		s.redirectError(c, fmt.Sprintf("/projects/%d", project.ID), err)
+		return
+	}
+	s.ports.Invalidate()
+	details := "Deployed " + shortRevision(deployment.CommitBefore) + " to " + shortRevision(deployment.CommitAfter)
+	s.audit(c, &user, "project_deploy", "project", strconv.FormatInt(project.ID, 10), details, true, "")
+	message := "Deployment completed."
+	if deployment.CommitBefore == deployment.CommitAfter {
+		message = "Deployment completed. The project was already up to date."
+	}
+	c.Redirect(http.StatusSeeOther, fmt.Sprintf("/projects/%d?success=%s", project.ID, url.QueryEscape(message)))
+}
+
+func (s *Server) deploymentsPage(c *gin.Context) {
+	history, err := s.db.ListDeployments(c.Request.Context(), 100)
+	if err != nil {
+		s.logger.Error("list deployments", "error", err)
+		s.renderProtected(c, http.StatusInternalServerError, "deployments.html", "Deployments", "deployments", nil, "", "Could not load deployment history.")
+		return
+	}
+	s.renderProtected(c, http.StatusOK, "deployments.html", "Deployments", "deployments", history, "", "")
 }
 
 func (s *Server) deleteProject(c *gin.Context) {
@@ -619,9 +736,13 @@ func (s *Server) envPage(c *gin.Context) {
 		return
 	}
 	data := EnvPageData{
-		Project: project,
-		Entries: parseEnv(content),
-		Exists:  content != "",
+		Project:   project,
+		Entries:   parseEnv(content),
+		Exists:    content != "",
+		HasSource: false,
+	}
+	if _, sourceErr := s.deploy.Source(c.Request.Context(), project.ID); sourceErr == nil {
+		data.HasSource = true
 	}
 	s.renderProtected(c, http.StatusOK, "env.html", project.Name+" environment", "projects", data, c.Query("success"), c.Query("error"))
 }
@@ -642,6 +763,20 @@ func (s *Server) saveEnv(c *gin.Context) {
 		return
 	}
 	s.audit(c, &user, "env_edit", "project", strconv.FormatInt(project.ID, 10), ".env updated; values redacted", true, "")
+	if c.PostForm("next") == "deploy" {
+		deployment, deployErr := s.deploy.Deploy(c.Request.Context(), project)
+		if deployErr != nil {
+			s.audit(c, &user, "project_deploy", "project", strconv.FormatInt(project.ID, 10),
+				"Deployment "+strconv.FormatInt(deployment.ID, 10)+" after environment save", false, deployErr.Error())
+			s.redirectError(c, fmt.Sprintf("/projects/%d/env", project.ID), deployErr)
+			return
+		}
+		s.audit(c, &user, "project_deploy", "project", strconv.FormatInt(project.ID, 10),
+			"Deployment after environment save", true, "")
+		c.Redirect(http.StatusSeeOther, fmt.Sprintf("/projects/%d?success=%s", project.ID,
+			url.QueryEscape("Environment saved and deployment completed.")))
+		return
+	}
 	c.Redirect(http.StatusSeeOther, fmt.Sprintf("/projects/%d/env?success=%s", project.ID, url.QueryEscape("Environment saved. Previous content was backed up when present.")))
 }
 
@@ -892,6 +1027,17 @@ func initial(value string) string {
 		return string(character)
 	}
 	return "?"
+}
+
+func shortRevision(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) > 8 {
+		return value[:8]
+	}
+	if value == "" {
+		return "none"
+	}
+	return value
 }
 
 func (s *Server) projectForRequest(c *gin.Context) (database.Project, bool) {

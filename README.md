@@ -22,6 +22,11 @@ The current runnable slice includes:
 - Read-only official Ollama installation guidance when unavailable
 - Docker Compose auto-discovery from Docker labels, with explicit project import
 - Runtime status synchronization and published-port association for imported Compose projects
+- GitHub repository cloning into the managed apps directory
+- Audited, fast-forward-only GitHub deployments with dirty-tree protection
+- Optional validated Docker Compose rebuilds after Git synchronization
+- Deployment history with before/after commit IDs and bounded command output
+- Visual `.env` editing followed by an optional one-click deployment
 
 ## Run locally
 
@@ -57,6 +62,20 @@ VPSDECK_OLLAMA_BASE_URL=http://another-server:11434 go run ./cmd/server
 For remote Ollama, prefer a private network, VPN, or authenticated reverse proxy.
 
 When Docker Compose discovery is enabled, the Projects page lists running and stopped Compose stacks found on the server. Importing a detected stack registers its trusted Docker-reported working directory, published host port, and runtime status in VPSDeck.
+
+## Deploy from GitHub
+
+Open **Add Project → Deploy from GitHub**, then provide a public HTTPS repository URL, branch, project name, and deployment mode.
+
+VPSDeck clones the repository into the configured `apps_dir`, opens the visual `.env` editor, and enables **Deploy latest** on the project page. Deployments:
+
+- refuse tracked local changes instead of overwriting them;
+- fetch only the configured branch;
+- use a fast-forward-only merge;
+- record commit IDs, status, output, errors, and audit events;
+- optionally validate and run `docker compose up -d --build`.
+
+Repository URLs containing credentials are rejected. Private GitHub repository authentication is not stored by this release.
 
 Read `VPSDECK_PROJECT_CONTEXT.md` before continuing development.
 
