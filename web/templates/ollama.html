@@ -1,0 +1,53 @@
+{{define "ollama.html"}}
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{.Title}} · VPSDeck</title><link rel="stylesheet" href="/static/app.css"><script defer src="/static/app.js"></script></head>
+<body>
+  {{template "sidebar" .}}
+  <main class="main">
+    {{template "topbar" .}}
+    <section class="content" data-monitor-ollama data-refresh="{{.Data.RefreshSeconds}}">
+      <div class="page-heading">
+        <div><p class="eyebrow">AI RUNTIME MONITOR</p><h1>Ollama</h1><p class="muted">Read-only health and model details from <code data-ollama-endpoint>{{.Data.Ollama.BaseURL}}</code>.</p></div>
+        <span class="status status-{{.Data.Ollama.Status}}" data-ollama-status><i></i>{{.Data.Ollama.Status}}</span>
+      </div>
+      <div class="alert ollama-message" data-ollama-message>{{.Data.Ollama.Message}}</div>
+      <div class="metric-grid monitor-metrics">
+        <article class="metric"><div class="metric-icon violet">VER</div><div><span>Version</span><strong data-ollama-version>{{if .Data.Ollama.Version}}{{.Data.Ollama.Version}}{{else}}—{{end}}</strong></div></article>
+        <article class="metric"><div class="metric-icon cyan">ALL</div><div><span>Installed models</span><strong data-ollama-installed>{{.Data.Ollama.InstalledCount}}</strong></div></article>
+        <article class="metric"><div class="metric-icon green">RUN</div><div><span>Loaded models</span><strong data-ollama-running>{{.Data.Ollama.RunningCount}}</strong></div></article>
+        <article class="metric"><div class="metric-icon amber">RAM</div><div><span>Loaded VRAM</span><strong data-ollama-vram>{{bytes .Data.Ollama.TotalVRAM}}</strong></div></article>
+      </div>
+      <section class="panel monitor-section">
+        <div class="panel-heading"><div><h2>Loaded models</h2><p>Models currently held in memory.</p></div></div>
+        <div class="model-grid" data-ollama-running-list>
+          {{range .Data.Ollama.RunningModels}}<article class="model-card"><h3>{{.Name}}</h3><p>{{.Details.ParameterSize}} · {{.Details.QuantizationLevel}}</p><dl><div><dt>VRAM</dt><dd>{{bytes .SizeVRAM}}</dd></div><div><dt>Context</dt><dd>{{.ContextLength}}</dd></div><div><dt>Expires</dt><dd>{{.ExpiresAt.Format "15:04:05"}}</dd></div></dl></article>{{else}}<p class="muted">No models are loaded.</p>{{end}}
+        </div>
+      </section>
+      <section class="panel monitor-section">
+        <div class="panel-heading"><div><h2>Installed models</h2><p>Models available to this Ollama server.</p></div></div>
+        <div class="model-grid" data-ollama-installed-list>
+          {{range .Data.Ollama.InstalledModels}}<article class="model-card"><h3>{{.Name}}</h3><p>{{.Details.ParameterSize}} · {{.Details.QuantizationLevel}}</p><dl><div><dt>Size</dt><dd>{{bytes .Size}}</dd></div><div><dt>Family</dt><dd>{{.Details.Family}}</dd></div></dl></article>{{else}}<p class="muted">No installed models reported.</p>{{end}}
+        </div>
+      </section>
+      <section class="install-guide" data-ollama-install {{if or (eq .Data.Ollama.Status "online") (eq .Data.Ollama.Status "disabled")}}hidden{{end}}>
+        <div class="panel-heading"><div><h2>Install or connect Ollama</h2><p>VPSDeck shows instructions only and never executes these commands.</p></div></div>
+        <div class="install-grid">
+          <article class="panel"><h3>Linux service</h3><p>Official installer and systemd startup.</p><pre id="ollama-linux-command">curl -fsSL https://ollama.com/install.sh | sh
+sudo systemctl enable --now ollama
+curl http://127.0.0.1:11434/api/version</pre><button class="button" type="button" data-copy-target="ollama-linux-command">Copy commands</button><a class="doc-link" href="https://docs.ollama.com/linux" target="_blank" rel="noreferrer">Official Linux guide ↗</a></article>
+          <article class="panel"><h3>Docker CPU</h3><p>Persistent volume with automatic restart.</p><pre id="ollama-docker-command">docker run -d \
+  --name ollama \
+  --restart unless-stopped \
+  -v ollama:/root/.ollama \
+  -p 11434:11434 \
+  ollama/ollama</pre><button class="button" type="button" data-copy-target="ollama-docker-command">Copy command</button><a class="doc-link" href="https://docs.ollama.com/docker" target="_blank" rel="noreferrer">NVIDIA and AMD options ↗</a></article>
+        </div>
+        <div class="alert alert-warning">For another server, prefer a private network, VPN, or authenticated reverse proxy. A local Ollama API does not require authentication.</div>
+      </section>
+      <p class="monitor-updated">Last checked <span data-ollama-updated>{{.Data.Ollama.CollectedAt.Format "15:04:05"}}</span>.</p>
+    </section>
+  </main>
+</body>
+</html>
+{{end}}

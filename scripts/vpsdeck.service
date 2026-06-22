@@ -1,0 +1,22 @@
+[Unit]
+Description=VPSDeck web control panel
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vpsdeck
+Group=vpsdeck
+WorkingDirectory=/opt/vpsdeck/src
+Environment=HOME=/var/lib/vpsdeck
+Environment=PATH=/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+ExecStart=/usr/local/bin/vpsdeck -config /etc/vpsdeck/config.yaml
+Restart=always
+RestartSec=3
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

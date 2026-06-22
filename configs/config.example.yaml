@@ -1,0 +1,39 @@
+app:
+  name: VPSDeck
+  host: 0.0.0.0
+  port: 8080
+  base_url: https://panel.example.com
+  environment: production
+
+security:
+  cookie_secure: true
+  session_lifetime_hours: 12
+  login_rate_limit_per_minute: 5
+
+paths:
+  database: /var/lib/vpsdeck/vpsdeck.db
+  data_dir: /var/lib/vpsdeck
+  log_dir: /var/log/vpsdeck
+  backup_dir: /var/backups/vpsdeck
+  apps_dir: /opt/apps
+  simple_mode_roots:
+    - /var/www
+    - /opt/apps
+    - /home/apps
+
+monitoring:
+  refresh_seconds: 5
+
+  ports:
+    enabled: true
+
+  ollama:
+    enabled: true
+    base_url: http://127.0.0.1:11434
+    timeout_seconds: 2
+
+docker:
+  enabled: true
+  discovery_enabled: true
+  command: docker
+  timeout_seconds: 10

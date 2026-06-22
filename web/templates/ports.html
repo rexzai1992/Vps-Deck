@@ -1,0 +1,46 @@
+{{define "ports.html"}}
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{.Title}} · VPSDeck</title><link rel="stylesheet" href="/static/app.css"><script defer src="/static/app.js"></script></head>
+<body>
+  {{template "sidebar" .}}
+  <main class="main">
+    {{template "topbar" .}}
+    <section class="content" data-monitor-ports data-refresh="{{.Data.RefreshSeconds}}">
+      <div class="page-heading">
+        <div><p class="eyebrow">NETWORK MONITOR</p><h1>Running ports</h1><p class="muted">Listening TCP sockets and bound UDP sockets on this server.</p></div>
+        <span class="status status-{{.Data.Ports.Status}}" data-ports-status><i></i>{{.Data.Ports.Status}}</span>
+      </div>
+      <div class="metric-grid monitor-metrics">
+        <article class="metric"><div class="metric-icon cyan">ALL</div><div><span>Total sockets</span><strong data-ports-total>{{.Data.Ports.TotalCount}}</strong></div></article>
+        <article class="metric"><div class="metric-icon violet">TCP</div><div><span>TCP listeners</span><strong data-ports-tcp>{{.Data.Ports.TCPCount}}</strong></div></article>
+        <article class="metric"><div class="metric-icon amber">UDP</div><div><span>UDP sockets</span><strong data-ports-udp>{{.Data.Ports.UDPCount}}</strong></div></article>
+        <article class="metric"><div class="metric-icon green">APP</div><div><span>Project warnings</span><strong data-ports-missing>{{len .Data.Ports.MissingProjectPorts}}</strong></div></article>
+      </div>
+      <div class="alert alert-warning" data-ports-warning {{if not .Data.Ports.Warning}}hidden{{end}}>{{.Data.Ports.Warning}}</div>
+      <div class="panel monitor-toolbar">
+        <input type="search" placeholder="Search port, process, address, or project" data-port-search>
+        <select data-port-protocol><option value="">All protocols</option><option value="TCP">TCP</option><option value="UDP">UDP</option></select>
+        <select data-port-exposure><option value="">All exposure</option><option value="loopback">Loopback only</option><option value="specific">Specific interface</option><option value="all">All interfaces</option></select>
+      </div>
+      <div class="panel table-panel">
+        <table><thead><tr><th>Protocol</th><th>Bind address</th><th>Port</th><th>Exposure</th><th>Process</th><th>Project</th></tr></thead>
+          <tbody data-port-rows>
+          {{range .Data.Ports.Listeners}}<tr data-port-row data-protocol="{{.Protocol}}" data-exposure="{{.ExposureKey}}" data-search="{{.Address}} {{.Port}} {{.Process}} {{range .Projects}}{{.Name}} {{end}}">
+            <td><span class="protocol-badge">{{.Protocol}}</span></td><td><code>{{.Address}}</code></td><td><strong>{{.Port}}</strong></td><td>{{.Exposure}}</td><td>{{if .Process}}{{.Process}}{{else}}Unknown{{end}}{{if .PID}}<small>PID {{.PID}}</small>{{end}}</td><td>{{range .Projects}}<a href="/projects/{{.ID}}">{{.Name}}</a>{{else}}—{{end}}</td>
+          </tr>{{else}}<tr><td colspan="6" class="empty-cell">No sockets are visible.</td></tr>{{end}}
+          </tbody>
+        </table>
+      </div>
+      <section class="panel monitor-section">
+        <div class="panel-heading"><div><h2>Configured project ports not listening</h2><p>These project ports are saved in VPSDeck but no matching socket is visible.</p></div></div>
+        <div data-missing-port-list>
+          {{range .Data.Ports.MissingProjectPorts}}<a class="missing-port" href="/projects/{{.ID}}"><strong>{{.Name}}</strong><span>Port {{.Port}}</span></a>{{else}}<p class="muted">No missing project ports.</p>{{end}}
+        </div>
+      </section>
+      <p class="monitor-updated">Last checked <span data-ports-updated>{{.Data.Ports.CollectedAt.Format "15:04:05"}}</span>. “All interfaces” describes the bind address, not firewall or internet reachability.</p>
+    </section>
+  </main>
+</body>
+</html>
+{{end}}
