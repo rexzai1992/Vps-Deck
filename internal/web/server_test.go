@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vpsdeck/vpsdeck/internal/auth"
 	"github.com/vpsdeck/vpsdeck/internal/config"
@@ -65,6 +66,15 @@ func TestLoginProjectRegistrationAndAudit(t *testing.T) {
 	if response.StatusCode != http.StatusOK || !strings.Contains(string(body), "Test App") {
 		t.Fatalf("project registration failed: status=%d body=%s", response.StatusCode, body)
 	}
+	response, err = client.Get(server.URL + "/projects/new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ = io.ReadAll(response.Body)
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK || !strings.Contains(string(body), "Deploy from GitHub") {
+		t.Fatalf("GitHub import form did not render: status=%d body=%s", response.StatusCode, body)
+	}
 
 	csrf = cookieValue(t, jar, server.URL, csrfCookie)
 	response, err = client.PostForm(server.URL+"/projects/1/env", url.Values{
@@ -82,6 +92,39 @@ func TestLoginProjectRegistrationAndAudit(t *testing.T) {
 	}
 	if !strings.Contains(string(envContent), "API_TOKEN=secret-value") {
 		t.Fatalf("environment was not saved: %s", envContent)
+	}
+	if err := db.CreateProjectSource(t.Context(), database.ProjectSource{
+		ProjectID:     1,
+		Provider:      "github",
+		RepositoryURL: "https://github.com/example/test-app.git",
+		Branch:        "main",
+		DeployMode:    "git",
+		LastCommit:    "1234567890abcdef",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	deploymentID, err := db.CreateDeployment(t.Context(), database.Deployment{
+		ProjectID:   1,
+		Action:      "clone",
+		State:       "running",
+		CommitAfter: "1234567890abcdef",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.FinishDeployment(t.Context(), deploymentID, "success", "", "1234567890abcdef", "Clone complete", "", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/projects/1", "/deployments"} {
+		response, err = client.Get(server.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ = io.ReadAll(response.Body)
+		response.Body.Close()
+		if response.StatusCode != http.StatusOK || !strings.Contains(string(body), "12345678") {
+			t.Fatalf("%s did not render GitHub deployment data: status=%d body=%s", path, response.StatusCode, body)
+		}
 	}
 
 	csrf = cookieValue(t, jar, server.URL, csrfCookie)

@@ -565,13 +565,13 @@ Do not build the web terminal in Phase 1.
 
 ### Phase 2: Deployment Engine and Docker Compose
 
-- [ ] Add project deployment settings.
-- [ ] Add per-project deployment lock and queue worker.
-- [ ] Add safe Git pull deployment.
-- [ ] Add one-click deploy and progress UI.
-- [ ] Persist deployment history, steps, and logs.
+- [x] Add project deployment settings.
+- [ ] Add a persistent per-project queue worker. An in-memory per-project deployment lock is complete.
+- [x] Add safe Git pull deployment.
+- [ ] Add live deployment progress UI. One-click synchronous deployment is complete.
+- [x] Persist deployment history and bounded logs.
 - [ ] Stream live progress/logs.
-- [ ] Add Compose config validation.
+- [x] Add Compose config validation for GitHub deployment mode.
 - [ ] Add Compose up/down/restart/pull/build/logs/status.
 - [ ] Add Compose deployment flow.
 - [ ] Add configurable health checks.
@@ -617,13 +617,13 @@ The first useful version is accepted when an administrator can:
 - [x] See CPU, RAM, storage, and uptime.
 - [ ] Add an existing project.
 - [ ] Upload and edit project files.
-- [ ] Edit `.env`.
+- [x] Edit `.env`.
 - [ ] View logs.
 - [ ] Restart a project.
 - [ ] See the action in audit logs.
-- [ ] Add a Git project.
-- [ ] Pull latest code.
-- [ ] Deploy and see live progress/logs.
+- [x] Add a Git project.
+- [x] Pull latest code.
+- [ ] Deploy and see live progress/logs. Deployment and stored logs are complete; live progress remains.
 - [ ] Roll back a failed deployment.
 - [ ] View Docker containers when Docker is available.
 - [ ] Run Compose up/down/restart.
@@ -697,6 +697,13 @@ Completed:
 - [x] Completed authenticated production smoke testing: login, dashboard, Projects, Ollama page, `/api/monitors/ports`, and `/api/monitors/ollama` all returned successful responses.
 - [x] Confirmed production Docker access for the `vpsdeck` service account and detected the running `qmessage-main` Compose container.
 - [x] Confirmed production monitor data: 12 listening TCP sockets, 2 bound UDP sockets, Ollama `0.30.8`, one installed `qwen2.5:1.5b` model, and no currently loaded model.
+- [x] Added browser-based public GitHub repository import into the configured managed apps directory.
+- [x] Added persisted GitHub source settings, selected branch, deployment mode, current commit, and deployment timestamps.
+- [x] Added audited fast-forward-only Git deployment with tracked-file dirty-tree protection, per-project locking, timeouts, and bounded output.
+- [x] Added optional validated `docker compose up -d --build` after Git synchronization.
+- [x] Added project and global deployment history pages with commit IDs, status, errors, and command output.
+- [x] Added **Save & deploy** to the visual `.env` editor for GitHub-connected projects.
+- [x] Completed an end-to-end local smoke test using `https://github.com/rexzai1992/Vps-Deck`: clone, branch detection, `.env` creation, repeat deployment, and history rendering passed.
 
 In progress:
 
@@ -705,9 +712,9 @@ In progress:
 
 Next action:
 
-1. Add safe ZIP upload/extraction with zip-slip, symlink, entry-count, and expanded-size protections.
-2. Add basic project log source configuration/viewing.
-3. Define allowlisted project runtime adapters before adding start/stop/restart buttons.
+1. Add private GitHub repository authentication using scoped deploy keys or a GitHub App without storing tokens in repository URLs.
+2. Move longer deployments to a persistent background worker with live progress polling.
+3. Add allowlisted Node.js, Python, and Go build/restart adapters.
 
 Known blockers:
 
@@ -727,6 +734,9 @@ Decisions made:
 - Cache port and Ollama snapshots for `monitoring.refresh_seconds`.
 - Treat Docker daemon Compose metadata as a trusted discovery source; import requires an exact detected project name and never accepts a user-supplied filesystem path or Docker command.
 - Imported Docker Compose projects may live outside `simple_mode_roots`; their file access is allowed because the path comes from Docker's Compose working-directory label.
+- GitHub import accepts only credential-free `https://github.com/owner/repository` URLs in this release.
+- Git deployment never resets or force-checks out files. It refuses tracked local changes and uses `fetch` plus `merge --ff-only`.
+- `.env` is allowed to remain untracked so visual environment edits do not block a normal deployment.
 
 Decisions still open:
 

@@ -37,6 +37,32 @@ type Project struct {
 	UpdatedAt      time.Time
 }
 
+type ProjectSource struct {
+	ProjectID      int64
+	Provider       string
+	RepositoryURL  string
+	Branch         string
+	DeployMode     string
+	LastCommit     string
+	LastDeployedAt *time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type Deployment struct {
+	ID           int64
+	ProjectID    int64
+	ProjectName  string
+	Action       string
+	State        string
+	CommitBefore string
+	CommitAfter  string
+	Output       string
+	Error        string
+	CreatedAt    time.Time
+	FinishedAt   *time.Time
+}
+
 type ProjectCounts struct {
 	Total   int
 	Running int
@@ -147,6 +173,37 @@ func (db *DB) Migrate(ctx context.Context) error {
 
 		CREATE INDEX idx_sessions_expires_at ON sessions(expires_at);
 		CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at DESC);
+		`,
+		`
+		CREATE TABLE project_sources (
+			project_id INTEGER PRIMARY KEY,
+			provider TEXT NOT NULL,
+			repository_url TEXT NOT NULL,
+			branch TEXT NOT NULL DEFAULT 'main',
+			deploy_mode TEXT NOT NULL DEFAULT 'git',
+			last_commit TEXT NOT NULL DEFAULT '',
+			last_deployed_at DATETIME,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+		);
+
+		CREATE TABLE deployments (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			project_id INTEGER NOT NULL,
+			action TEXT NOT NULL,
+			state TEXT NOT NULL,
+			commit_before TEXT NOT NULL DEFAULT '',
+			commit_after TEXT NOT NULL DEFAULT '',
+			output TEXT NOT NULL DEFAULT '',
+			error TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			finished_at DATETIME,
+			FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+		);
+
+		CREATE INDEX idx_deployments_project_created
+			ON deployments(project_id, created_at DESC);
 		`,
 	}
 
@@ -320,6 +377,126 @@ func (db *DB) UpdateProjectRuntime(ctx context.Context, id int64, status string,
 		WHERE id = ?
 	`, status, port, port, id)
 	return err
+}
+
+func (db *DB) CreateProjectSource(ctx context.Context, source ProjectSource) error {
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO project_sources(
+			project_id, provider, repository_url, branch, deploy_mode, last_commit, last_deployed_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, source.ProjectID, source.Provider, source.RepositoryURL, source.Branch,
+		source.DeployMode, source.LastCommit, source.LastDeployedAt)
+	return err
+}
+
+func (db *DB) ProjectSourceByProjectID(ctx context.Context, projectID int64) (ProjectSource, error) {
+	var source ProjectSource
+	var deployedAt sql.NullTime
+	err := db.QueryRowContext(ctx, `
+		SELECT project_id, provider, repository_url, branch, deploy_mode, last_commit,
+		       last_deployed_at, created_at, updated_at
+		FROM project_sources
+		WHERE project_id = ?
+	`, projectID).Scan(
+		&source.ProjectID, &source.Provider, &source.RepositoryURL, &source.Branch,
+		&source.DeployMode, &source.LastCommit, &deployedAt, &source.CreatedAt, &source.UpdatedAt,
+	)
+	if deployedAt.Valid {
+		value := deployedAt.Time
+		source.LastDeployedAt = &value
+	}
+	return source, err
+}
+
+func (db *DB) UpdateProjectSourceDeployment(ctx context.Context, projectID int64, commit string, deployedAt time.Time) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE project_sources
+		SET last_commit = ?, last_deployed_at = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE project_id = ?
+	`, commit, deployedAt.UTC(), projectID)
+	return err
+}
+
+func (db *DB) CreateDeployment(ctx context.Context, deployment Deployment) (int64, error) {
+	result, err := db.ExecContext(ctx, `
+		INSERT INTO deployments(project_id, action, state, commit_before, commit_after, output, error)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, deployment.ProjectID, deployment.Action, deployment.State, deployment.CommitBefore,
+		deployment.CommitAfter, deployment.Output, deployment.Error)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+func (db *DB) FinishDeployment(ctx context.Context, id int64, state, commitBefore, commitAfter, output, errorMessage string, finishedAt time.Time) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE deployments
+		SET state = ?, commit_before = ?, commit_after = ?, output = ?, error = ?, finished_at = ?
+		WHERE id = ?
+	`, state, commitBefore, commitAfter, output, errorMessage, finishedAt.UTC(), id)
+	return err
+}
+
+func (db *DB) ListProjectDeployments(ctx context.Context, projectID int64, limit int) ([]Deployment, error) {
+	if limit < 1 || limit > 200 {
+		limit = 20
+	}
+	rows, err := db.QueryContext(ctx, `
+		SELECT d.id, d.project_id, p.name, d.action, d.state, d.commit_before,
+		       d.commit_after, d.output, d.error, d.created_at, d.finished_at
+		FROM deployments d
+		JOIN projects p ON p.id = d.project_id
+		WHERE d.project_id = ?
+		ORDER BY d.created_at DESC, d.id DESC
+		LIMIT ?
+	`, projectID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanDeployments(rows)
+}
+
+func (db *DB) ListDeployments(ctx context.Context, limit int) ([]Deployment, error) {
+	if limit < 1 || limit > 500 {
+		limit = 100
+	}
+	rows, err := db.QueryContext(ctx, `
+		SELECT d.id, d.project_id, p.name, d.action, d.state, d.commit_before,
+		       d.commit_after, d.output, d.error, d.created_at, d.finished_at
+		FROM deployments d
+		JOIN projects p ON p.id = d.project_id
+		ORDER BY d.created_at DESC, d.id DESC
+		LIMIT ?
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanDeployments(rows)
+}
+
+func scanDeployments(rows *sql.Rows) ([]Deployment, error) {
+	var deployments []Deployment
+	for rows.Next() {
+		var deployment Deployment
+		var finishedAt sql.NullTime
+		if err := rows.Scan(
+			&deployment.ID, &deployment.ProjectID, &deployment.ProjectName,
+			&deployment.Action, &deployment.State, &deployment.CommitBefore,
+			&deployment.CommitAfter, &deployment.Output, &deployment.Error,
+			&deployment.CreatedAt, &finishedAt,
+		); err != nil {
+			return nil, err
+		}
+		if finishedAt.Valid {
+			value := finishedAt.Time
+			deployment.FinishedAt = &value
+		}
+		deployments = append(deployments, deployment)
+	}
+	return deployments, rows.Err()
 }
 
 func (db *DB) ProjectCounts(ctx context.Context) (ProjectCounts, error) {

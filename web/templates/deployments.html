@@ -1,0 +1,28 @@
+{{define "deployments.html"}}
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{.Title}} · VPSDeck</title><link rel="stylesheet" href="/static/app.css"><script defer src="/static/app.js"></script></head>
+<body>
+  {{template "sidebar" .}}
+  <main class="main">
+    {{template "topbar" .}}
+    <section class="content">
+      {{template "alerts" .}}
+      <div class="page-heading"><div><p class="eyebrow">DEPLOYMENTS</p><h1>Deployment history</h1><p class="muted">GitHub clones, safe fast-forward pulls, and Docker Compose rebuild results.</p></div><a class="button button-primary" href="/projects/new">+ Deploy from GitHub</a></div>
+      <section class="panel deployment-history">
+        {{if .Data}}
+        <div class="deployment-list">
+          {{range .Data}}
+          <details class="deployment-item">
+            <summary><span><a href="/projects/{{.ProjectID}}"><strong>{{.ProjectName}}</strong></a><small>{{.Action}} · {{.CreatedAt.Format "2 Jan 2006, 15:04"}}</small></span><span class="deployment-revision">{{if .CommitAfter}}{{shortcommit .CommitAfter}}{{else}}—{{end}}</span><span class="status status-{{.State}}"><i></i>{{.State}}</span></summary>
+            <div class="deployment-output">{{if .Error}}<div class="alert alert-error">{{.Error}}</div>{{end}}{{if .Output}}<pre>{{.Output}}</pre>{{else}}<p class="muted">No command output was recorded.</p>{{end}}</div>
+          </details>
+          {{end}}
+        </div>
+        {{else}}<div class="empty"><div class="empty-icon">⇅</div><h2>No deployments yet</h2><p>Add a project from GitHub to create the first deployment.</p><a class="button button-primary" href="/projects/new">Deploy from GitHub</a></div>{{end}}
+      </section>
+    </section>
+  </main>
+</body>
+</html>
+{{end}}
