@@ -1,0 +1,8 @@
+/data/
+/managed-apps/
+/vpsdeck
+/server
+*.db
+*.db-shm
+*.db-wal
+.DS_Store

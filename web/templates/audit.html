@@ -1,0 +1,24 @@
+{{define "audit.html"}}
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{.Title}} · VPSDeck</title><link rel="stylesheet" href="/static/app.css"><script defer src="/static/app.js"></script></head>
+<body>
+  {{template "sidebar" .}}
+  <main class="main">
+    {{template "topbar" .}}
+    <section class="content">
+      {{template "alerts" .}}
+      <div class="page-heading"><div><p class="eyebrow">SECURITY</p><h1>Audit log</h1><p class="muted">A recent history of important control-panel actions.</p></div></div>
+      <div class="panel table-panel">
+        <table><thead><tr><th>Time</th><th>Action</th><th>User</th><th>Target</th><th>Result</th><th>Details</th></tr></thead>
+        <tbody>
+          {{range .Data}}
+          <tr><td>{{.CreatedAt.Format "2 Jan 15:04"}}</td><td><code>{{.Action}}</code></td><td>{{if .Username}}{{.Username}}{{else}}Guest{{end}}<small>{{.IPAddress}}</small></td><td>{{.TargetType}} {{.TargetID}}</td><td>{{if .Success}}<span class="status status-running"><i></i>Success</span>{{else}}<span class="status status-failed"><i></i>Failed</span>{{end}}</td><td>{{if .Error}}{{.Error}}{{else}}{{.Details}}{{end}}</td></tr>
+          {{else}}<tr><td colspan="6" class="empty-cell">No audit entries yet.</td></tr>{{end}}
+        </tbody></table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
+{{end}}

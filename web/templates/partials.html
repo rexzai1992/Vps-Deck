@@ -1,0 +1,34 @@
+{{define "sidebar"}}
+<aside class="sidebar">
+  <a class="brand" href="/dashboard"><span class="brand-mark">V</span><span>VPSDeck</span></a>
+  <nav>
+    <a class="{{if eq .Active "dashboard"}}active{{end}}" href="/dashboard"><span>▦</span>Dashboard</a>
+    <a class="{{if eq .Active "projects"}}active{{end}}" href="/projects"><span>◇</span>Projects</a>
+    <a href="/projects/new"><span>＋</span>Add Project</a>
+    <div class="nav-label">MANAGE</div>
+    <a class="disabled" title="Coming soon"><span>⇅</span>Deployments</a>
+    <a class="{{if eq .Active "files"}}active{{end}}" href="/files"><span>□</span>Files</a>
+    <a class="disabled" title="Coming soon"><span>◎</span>Domains</a>
+    <a class="disabled" title="Coming soon"><span>≡</span>Logs</a>
+    <div class="nav-label">SYSTEM</div>
+    <a class="{{if eq .Active "ports"}}active{{end}}" href="/network/ports"><span>⇄</span>Ports</a>
+    <a class="{{if eq .Active "ollama"}}active{{end}}" href="/ollama"><span>◉</span>Ollama</a>
+    <a class="{{if eq .Active "audit"}}active{{end}}" href="/audit"><span>✓</span>Audit log</a>
+  </nav>
+  <div class="sidebar-footer"><span class="status-dot"></span><div><strong>Simple Mode</strong><small>Safe controls only</small></div></div>
+</aside>
+{{end}}
+
+{{define "topbar"}}
+<header class="topbar">
+  <div class="mobile-brand"><span class="brand-mark">V</span>VPSDeck</div>
+  <div class="topbar-right"><span class="user-pill">{{.User.Username}} · {{.User.Role}}</span>
+    <form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><button class="text-button" type="submit">Sign out</button></form>
+  </div>
+</header>
+{{end}}
+
+{{define "alerts"}}
+  {{if .Success}}<div class="alert alert-success">{{.Success}}</div>{{end}}
+  {{if .Error}}<div class="alert alert-error">{{.Error}}</div>{{end}}
+{{end}}

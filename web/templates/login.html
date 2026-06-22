@@ -1,0 +1,44 @@
+{{define "login.html"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}} · VPSDeck</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="login-body">
+  <main class="login-shell">
+    <section class="login-panel">
+      <div class="brand brand-large"><span class="brand-mark">V</span><span>VPSDeck</span></div>
+      <p class="eyebrow">YOUR SERVER, WITHOUT THE TERMINAL</p>
+      <h1>Welcome back</h1>
+      <p class="muted">Sign in to manage projects and check server health.</p>
+      {{if .Error}}<div class="alert alert-error">{{.Error}}</div>{{end}}
+      <form method="post" action="/login" class="stack">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        <label>
+          <span>Username</span>
+          <input name="username" type="text" autocomplete="username" required autofocus>
+        </label>
+        <label>
+          <span>Password</span>
+          <input name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <button type="submit" class="button button-primary button-wide">Sign in</button>
+      </form>
+      <p class="secure-note">Secure server-side session · Login attempts are rate limited</p>
+    </section>
+    <aside class="login-art">
+      <div class="orb orb-one"></div><div class="orb orb-two"></div>
+      <div class="terminal-card">
+        <div class="terminal-top"><i></i><i></i><i></i></div>
+        <p><span class="terminal-green">●</span> server healthy</p>
+        <p><span class="terminal-label">CPU</span> 12% &nbsp; <span class="terminal-label">RAM</span> 38%</p>
+        <p><span class="terminal-green">✓</span> projects online</p>
+      </div>
+    </aside>
+  </main>
+</body>
+</html>
+{{end}}

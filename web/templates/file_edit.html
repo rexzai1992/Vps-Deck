@@ -1,0 +1,22 @@
+{{define "file_edit.html"}}
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{.Title}} · VPSDeck</title><link rel="stylesheet" href="/static/app.css"><script defer src="/static/app.js"></script></head>
+<body>
+  {{template "sidebar" .}}
+  <main class="main">
+    {{template "topbar" .}}
+    <section class="content">
+      {{template "alerts" .}}
+      <a class="back-link" href="/projects/{{.Data.Project.ID}}/files?path={{urlquery (dir .Data.Path)}}">← Back to files</a>
+      <div class="page-heading"><div><p class="eyebrow">TEXT EDITOR</p><h1>{{base .Data.Path}}</h1><p class="muted">{{.Data.Path}} · Saving creates a private backup first.</p></div></div>
+      <form method="post" action="/projects/{{.Data.Project.ID}}/files/edit" class="panel editor-panel">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="path" value="{{.Data.Path}}">
+        <textarea name="content" class="code-editor" spellcheck="false">{{.Data.Content}}</textarea>
+        <div class="form-actions"><a class="button" href="/projects/{{.Data.Project.ID}}/files?path={{urlquery (dir .Data.Path)}}">Cancel</a><button class="button button-primary" type="submit">Save file</button></div>
+      </form>
+    </section>
+  </main>
+</body>
+</html>
+{{end}}

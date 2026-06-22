@@ -1,0 +1,50 @@
+{{define "project_new.html"}}
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{.Title}} · VPSDeck</title><link rel="stylesheet" href="/static/app.css"><script defer src="/static/app.js"></script></head>
+<body>
+  {{template "sidebar" .}}
+  <main class="main">
+    {{template "topbar" .}}
+    <section class="content narrow">
+      {{template "alerts" .}}
+      <a class="back-link" href="/projects">← Back to projects</a>
+      <div class="page-heading"><div><p class="eyebrow">ADD PROJECT</p><h1>Register an existing folder</h1><p class="muted">VPSDeck records the project. It does not move or change its files.</p></div></div>
+      <form method="post" action="/projects" class="panel form-panel">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        <div class="form-grid">
+          <label><span>Project name</span><input name="name" placeholder="My API" maxlength="100" required><small>A friendly name shown in the dashboard.</small></label>
+          <label><span>Project type</span><select name="type"><option value="auto">Auto-detect</option><option value="docker-compose">Docker Compose</option><option value="docker">Dockerfile</option><option value="nodejs">Node.js</option><option value="python">Python</option><option value="golang">Go</option><option value="static">Static website</option><option value="systemd">systemd service</option><option value="custom">Custom</option></select></label>
+          <label class="span-two"><span>Folder location</span>
+            <div class="folder-input"><input name="working_dir" data-folder-value placeholder="Choose a project folder" readonly required><button class="button" type="button" data-folder-open>Browse folders</button></div>
+            <small>Browse approved root: {{range $index, $root := .Data.Roots}}{{if $index}}, {{end}}<code>{{$root}}</code>{{end}}</small>
+          </label>
+          <label><span>Domain <em>optional</em></span><input name="domain" placeholder="api.example.com"></label>
+          <label><span>Local port <em>optional</em></span><input name="port" type="number" min="1" max="65535" placeholder="3000"></label>
+          <label class="span-two"><span>Health-check URL <em>optional</em></span><input name="healthcheck_url" type="url" placeholder="http://127.0.0.1:3000/health"></label>
+        </div>
+        <div class="form-actions"><a class="button" href="/projects">Cancel</a><button class="button button-primary" type="submit">Register project</button></div>
+      </form>
+    </section>
+  </main>
+  <dialog class="folder-dialog" data-folder-dialog>
+    <div class="folder-dialog-head">
+      <div><p class="eyebrow">SERVER FOLDERS</p><h2>Choose project folder</h2></div>
+      <button class="dialog-close" type="button" data-folder-close aria-label="Close">×</button>
+    </div>
+    <div class="folder-controls">
+      <label><span>Approved root</span><select data-folder-root>{{range $index, $root := .Data.Roots}}<option value="{{$index}}">{{$root}}</option>{{end}}</select></label>
+      <label class="checkbox-label"><input type="checkbox" data-folder-hidden> Show hidden folders</label>
+    </div>
+    <nav class="breadcrumbs" data-folder-breadcrumbs></nav>
+    <div class="folder-current"><span>Selected location</span><code data-folder-current>Loading…</code></div>
+    <div class="folder-warning" data-folder-warning hidden></div>
+    <div class="folder-list" data-folder-list><div class="folder-loading">Loading folders…</div></div>
+    <div class="form-actions">
+      <button class="button" type="button" data-folder-close>Cancel</button>
+      <button class="button button-primary" type="button" data-folder-select disabled>Select this folder</button>
+    </div>
+  </dialog>
+</body>
+</html>
+{{end}}
