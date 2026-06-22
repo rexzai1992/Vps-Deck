@@ -29,3 +29,9 @@ monitoring:
     enabled: true
     base_url: http://127.0.0.1:11434
     timeout_seconds: 2
+
+docker:
+  enabled: true
+  discovery_enabled: true
+  command: docker
+  timeout_seconds: 10

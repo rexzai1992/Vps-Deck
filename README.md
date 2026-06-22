@@ -20,6 +20,8 @@ The current runnable slice includes:
 - Live TCP/UDP port monitor with project-port matching
 - Local or remote Ollama health and model monitor
 - Read-only official Ollama installation guidance when unavailable
+- Docker Compose auto-discovery from Docker labels, with explicit project import
+- Runtime status synchronization and published-port association for imported Compose projects
 
 ## Run locally
 
@@ -53,5 +55,7 @@ VPSDECK_OLLAMA_BASE_URL=http://another-server:11434 go run ./cmd/server
 ```
 
 For remote Ollama, prefer a private network, VPN, or authenticated reverse proxy.
+
+When Docker Compose discovery is enabled, the Projects page lists running and stopped Compose stacks found on the server. Importing a detected stack registers its trusted Docker-reported working directory, published host port, and runtime status in VPSDeck.
 
 Read `VPSDECK_PROJECT_CONTEXT.md` before continuing development.

@@ -82,6 +82,10 @@ func (s *PortService) Snapshot(ctx context.Context) PortSnapshot {
 	return s.cache.get(ctx, s.ttl, s.collect)
 }
 
+func (s *PortService) Invalidate() {
+	s.cache.invalidate()
+}
+
 func (s *PortService) collect(ctx context.Context) PortSnapshot {
 	snapshot := PortSnapshot{
 		Enabled:     s.enabled,

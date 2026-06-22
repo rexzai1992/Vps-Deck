@@ -195,7 +195,7 @@ func testServer(t *testing.T) (http.Handler, *database.DB, string) {
 	}
 
 	configPath := filepath.Join(base, "config.yaml")
-	configBody := "app:\n  host: 127.0.0.1\n  port: 8080\n  environment: test\nsecurity:\n  cookie_secure: false\n  session_lifetime_hours: 1\n  login_rate_limit_per_minute: 5\npaths:\n  database: " + filepath.Join(base, "vpsdeck.db") + "\n  data_dir: " + filepath.Join(base, "data") + "\n  log_dir: " + filepath.Join(base, "logs") + "\n  backup_dir: " + filepath.Join(base, "backups") + "\n  apps_dir: " + apps + "\n  simple_mode_roots:\n    - " + apps + "\nmonitoring:\n  refresh_seconds: 5\n  ports:\n    enabled: false\n  ollama:\n    enabled: false\n    base_url: http://127.0.0.1:11434\n    timeout_seconds: 1\n"
+	configBody := "app:\n  host: 127.0.0.1\n  port: 8080\n  environment: test\nsecurity:\n  cookie_secure: false\n  session_lifetime_hours: 1\n  login_rate_limit_per_minute: 5\npaths:\n  database: " + filepath.Join(base, "vpsdeck.db") + "\n  data_dir: " + filepath.Join(base, "data") + "\n  log_dir: " + filepath.Join(base, "logs") + "\n  backup_dir: " + filepath.Join(base, "backups") + "\n  apps_dir: " + apps + "\n  simple_mode_roots:\n    - " + apps + "\nmonitoring:\n  refresh_seconds: 5\n  ports:\n    enabled: false\n  ollama:\n    enabled: false\n    base_url: http://127.0.0.1:11434\n    timeout_seconds: 1\ndocker:\n  enabled: false\n  discovery_enabled: false\n  command: docker\n  timeout_seconds: 1\n"
 	if err := os.WriteFile(configPath, []byte(configBody), 0o640); err != nil {
 		t.Fatal(err)
 	}

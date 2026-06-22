@@ -18,6 +18,7 @@ type Config struct {
 	Security   SecurityConfig   `yaml:"security"`
 	Paths      PathsConfig      `yaml:"paths"`
 	Monitoring MonitoringConfig `yaml:"monitoring"`
+	Docker     DockerConfig     `yaml:"docker"`
 }
 
 type AppConfig struct {
@@ -60,6 +61,13 @@ type OllamaMonitorConfig struct {
 	TimeoutSeconds int    `yaml:"timeout_seconds"`
 }
 
+type DockerConfig struct {
+	Enabled          bool   `yaml:"enabled"`
+	DiscoveryEnabled bool   `yaml:"discovery_enabled"`
+	Command          string `yaml:"command"`
+	TimeoutSeconds   int    `yaml:"timeout_seconds"`
+}
+
 func Default() Config {
 	return Config{
 		App: AppConfig{
@@ -92,6 +100,12 @@ func Default() Config {
 				BaseURL:        "http://127.0.0.1:11434",
 				TimeoutSeconds: 2,
 			},
+		},
+		Docker: DockerConfig{
+			Enabled:          true,
+			DiscoveryEnabled: true,
+			Command:          "docker",
+			TimeoutSeconds:   10,
 		},
 	}
 }
@@ -145,6 +159,13 @@ func (c *Config) normalize() error {
 	}
 	if err := normalizeOllamaURL(&c.Monitoring.Ollama); err != nil {
 		return err
+	}
+	c.Docker.Command = strings.TrimSpace(c.Docker.Command)
+	if c.Docker.Enabled && c.Docker.Command == "" {
+		return errors.New("docker.command cannot be empty when Docker is enabled")
+	}
+	if c.Docker.TimeoutSeconds < 1 || c.Docker.TimeoutSeconds > 60 {
+		return errors.New("docker.timeout_seconds must be between 1 and 60")
 	}
 
 	var err error

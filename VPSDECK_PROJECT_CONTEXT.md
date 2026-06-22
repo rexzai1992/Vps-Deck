@@ -685,10 +685,15 @@ Completed:
 - [x] Added authenticated monitor JSON APIs, dedicated Ports/Ollama pages, sidebar links, dashboard summaries, and five-second browser polling.
 - [x] Verified the monitor slice with unit/integration tests, race detector, vet, JavaScript syntax check, production build, and a live HTTP smoke test on port 18081.
 - [x] Live monitor smoke results: 14 TCP listeners, 9 UDP sockets, VPSDeck detected on 8080, project port 9090 reported inactive, folder picker found `smoke-app`, and Ollama correctly reported not detected.
+- [x] Added Docker Compose auto-discovery using allowlisted Docker CLI commands and daemon-provided Compose metadata.
+- [x] Added explicit import of detected Compose stacks, including trusted working directory, published host port, container/service details, and runtime status synchronization.
+- [x] Imported the live `aigenius-full` stack: 6/6 containers running, healthy web service, localhost port 80, working directory `/Users/cravemac2/aigenius-full`.
+- [x] Port 80 now associates with `aigenius-full` instead of appearing only as the Docker Desktop backend process.
+- [x] Detected the stopped `qparking` Compose stack without importing it.
 
 In progress:
 
-- VPSDeck is running with the verified folder-picker and monitor build on `http://127.0.0.1:8080` (PID 24276).
+- VPSDeck is running with Docker Compose discovery on `http://127.0.0.1:8080` (PID 30461).
 
 Next action:
 
@@ -712,6 +717,8 @@ Decisions made:
 - Monitor only one configured Ollama endpoint at a time; use `VPSDECK_OLLAMA_BASE_URL` for environment-specific overrides.
 - Keep Ollama installation guidance read-only. VPSDeck never executes the displayed installation commands.
 - Cache port and Ollama snapshots for `monitoring.refresh_seconds`.
+- Treat Docker daemon Compose metadata as a trusted discovery source; import requires an exact detected project name and never accepts a user-supplied filesystem path or Docker command.
+- Imported Docker Compose projects may live outside `simple_mode_roots`; their file access is allowed because the path comes from Docker's Compose working-directory label.
 
 Decisions still open:
 
@@ -760,10 +767,11 @@ Current local configuration:
 - Bind address: `127.0.0.1:8080`
 - Local admin username: `admin`
 - Live test data: one registered project named `Live Smoke App`
-- Current verified database counts: 1 user, 1 project, and 11 audit entries
+- Current verified database state: 1 user, 2 projects (`Live Smoke App` and running `aigenius-full`)
 - Monitor refresh: 5 seconds
 - Ollama endpoint: `http://127.0.0.1:11434`
 - Monitor pages: `/network/ports` and `/ollama`
+- Docker Compose discovery: enabled with the `docker` CLI and a 10-second command timeout
 
 ## 19. Implementation Guardrails
 

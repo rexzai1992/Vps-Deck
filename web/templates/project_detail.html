@@ -11,7 +11,7 @@
       <a class="back-link" href="/projects">← Back to projects</a>
       <div class="page-heading">
         <div class="heading-with-icon"><div class="app-icon app-icon-large">{{initial .Data.Name}}</div><div><p class="eyebrow">{{.Data.Type}}</p><h1>{{.Data.Name}}</h1><p class="muted">{{.Data.WorkingDir}}</p></div></div>
-        <span class="status status-unknown"><i></i>{{.Data.Status}}</span>
+        <span class="status status-{{.Data.Status}}"><i></i>{{.Data.Status}}</span>
       </div>
       <div class="action-row">
         <button class="button button-primary" disabled title="Coming in the next Phase 1 slice">Deploy Now</button>

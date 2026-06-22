@@ -20,6 +20,7 @@ import (
 	"github.com/vpsdeck/vpsdeck/internal/config"
 	"github.com/vpsdeck/vpsdeck/internal/dashboard"
 	"github.com/vpsdeck/vpsdeck/internal/database"
+	dockerdiscovery "github.com/vpsdeck/vpsdeck/internal/docker"
 	projectfiles "github.com/vpsdeck/vpsdeck/internal/files"
 	"github.com/vpsdeck/vpsdeck/internal/monitoring"
 	"github.com/vpsdeck/vpsdeck/internal/projects"
@@ -41,6 +42,7 @@ type Server struct {
 	dashboard *dashboard.Service
 	ports     *monitoring.PortService
 	ollama    *monitoring.OllamaService
+	docker    *dockerdiscovery.Discovery
 	limiter   *auth.RateLimiter
 	logger    *slog.Logger
 	templates *template.Template
@@ -91,7 +93,13 @@ type DashboardPageData struct {
 	dashboard.Summary
 	Ports          monitoring.PortSnapshot
 	Ollama         monitoring.OllamaSnapshot
+	Docker         dockerdiscovery.Snapshot
 	RefreshSeconds int
+}
+
+type ProjectsPageData struct {
+	Projects []database.Project
+	Docker   dockerdiscovery.Snapshot
 }
 
 type MonitorPageData struct {
@@ -148,6 +156,13 @@ func New(cfg config.Config, db *database.DB, authService *auth.Service, logger *
 			time.Duration(cfg.Monitoring.Ollama.TimeoutSeconds)*time.Second,
 			time.Duration(cfg.Monitoring.RefreshSeconds)*time.Second,
 		),
+		docker: dockerdiscovery.NewDiscovery(
+			db,
+			cfg.Docker.Enabled && cfg.Docker.DiscoveryEnabled,
+			cfg.Docker.Command,
+			time.Duration(cfg.Docker.TimeoutSeconds)*time.Second,
+			time.Duration(cfg.Monitoring.RefreshSeconds)*time.Second,
+		),
 		limiter:   auth.NewRateLimiter(cfg.Security.LoginRateLimitPerMinute, time.Minute),
 		logger:    logger,
 		templates: templates,
@@ -174,6 +189,7 @@ func New(cfg config.Config, db *database.DB, authService *auth.Service, logger *
 	protected.GET("/projects", server.projectsPage)
 	protected.GET("/projects/new", server.newProjectPage)
 	protected.POST("/projects", server.limitBody(1<<20), server.csrfRequired(), server.createProject)
+	protected.POST("/projects/import/docker-compose", server.limitBody(1<<20), server.csrfRequired(), server.importDockerCompose)
 	protected.GET("/projects/:id", server.projectPage)
 	protected.POST("/projects/:id/delete", server.limitBody(1<<20), server.csrfRequired(), server.deleteProject)
 	protected.GET("/files", server.fileProjectsPage)
@@ -280,6 +296,8 @@ func (s *Server) logout(c *gin.Context) {
 }
 
 func (s *Server) dashboardPage(c *gin.Context) {
+	dockerSnapshot := s.docker.Snapshot(c.Request.Context(), false)
+	s.docker.SyncRegistered(c.Request.Context(), dockerSnapshot)
 	summary, err := s.dashboard.Collect(c.Request.Context())
 	if err != nil {
 		s.logger.Error("collect dashboard", "error", err)
@@ -290,19 +308,25 @@ func (s *Server) dashboardPage(c *gin.Context) {
 		Summary:        summary,
 		Ports:          s.ports.Snapshot(c.Request.Context()),
 		Ollama:         s.ollama.Snapshot(c.Request.Context()),
+		Docker:         dockerSnapshot,
 		RefreshSeconds: s.cfg.Monitoring.RefreshSeconds,
 	}
 	s.renderProtected(c, http.StatusOK, "dashboard.html", "Dashboard", "dashboard", data, c.Query("success"), "")
 }
 
 func (s *Server) projectsPage(c *gin.Context) {
+	dockerSnapshot := s.docker.Snapshot(c.Request.Context(), false)
+	s.docker.SyncRegistered(c.Request.Context(), dockerSnapshot)
 	items, err := s.projects.List(c.Request.Context())
 	if err != nil {
 		s.logger.Error("list projects", "error", err)
 		s.renderProtected(c, http.StatusInternalServerError, "projects.html", "Projects", "projects", nil, "", "Could not load projects.")
 		return
 	}
-	s.renderProtected(c, http.StatusOK, "projects.html", "Projects", "projects", items, c.Query("success"), c.Query("error"))
+	s.renderProtected(c, http.StatusOK, "projects.html", "Projects", "projects", ProjectsPageData{
+		Projects: items,
+		Docker:   dockerSnapshot,
+	}, c.Query("success"), c.Query("error"))
 }
 
 func (s *Server) newProjectPage(c *gin.Context) {
@@ -389,7 +413,25 @@ func (s *Server) createProject(c *gin.Context) {
 	c.Redirect(http.StatusSeeOther, fmt.Sprintf("/projects/%d?success=%s", project.ID, url.QueryEscape("Project registered.")))
 }
 
+func (s *Server) importDockerCompose(c *gin.Context) {
+	name := strings.TrimSpace(c.PostForm("name"))
+	user := s.mustUser(c)
+	project, err := s.docker.Import(c.Request.Context(), name)
+	if err != nil {
+		s.audit(c, &user, "docker_compose_import", "docker_compose", name, "", false, err.Error())
+		s.redirectError(c, "/projects", err)
+		return
+	}
+	snapshot := s.docker.Snapshot(c.Request.Context(), true)
+	s.docker.SyncRegistered(c.Request.Context(), snapshot)
+	s.ports.Invalidate()
+	s.audit(c, &user, "docker_compose_import", "project", strconv.FormatInt(project.ID, 10), "Imported Docker Compose project "+name, true, "")
+	c.Redirect(http.StatusSeeOther, fmt.Sprintf("/projects/%d?success=%s", project.ID, url.QueryEscape("Docker Compose project imported.")))
+}
+
 func (s *Server) projectPage(c *gin.Context) {
+	dockerSnapshot := s.docker.Snapshot(c.Request.Context(), false)
+	s.docker.SyncRegistered(c.Request.Context(), dockerSnapshot)
 	id, err := parseID(c.Param("id"))
 	if err != nil {
 		c.Status(http.StatusNotFound)

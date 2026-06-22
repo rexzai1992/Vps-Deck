@@ -9,11 +9,11 @@
     <section class="content">
       {{template "alerts" .}}
       <div class="page-heading"><div><p class="eyebrow">APPLICATIONS</p><h1>Projects</h1><p class="muted">One place for every app running on this server.</p></div><a class="button button-primary" href="/projects/new">+ Add project</a></div>
-      {{if .Data}}
+      {{if .Data.Projects}}
       <div class="project-grid">
-        {{range .Data}}
+        {{range .Data.Projects}}
         <article class="project-card">
-          <div class="project-card-top"><div class="app-icon">{{initial .Name}}</div><span class="status status-unknown"><i></i>{{.Status}}</span></div>
+          <div class="project-card-top"><div class="app-icon">{{initial .Name}}</div><span class="status status-{{.Status}}"><i></i>{{.Status}}</span></div>
           <h2>{{.Name}}</h2><p class="project-type">{{.Type}}</p>
           <dl class="card-details">
             <div><dt>Folder</dt><dd title="{{.WorkingDir}}">{{.WorkingDir}}</dd></div>
@@ -27,6 +27,19 @@
       {{else}}
       <div class="panel empty"><div class="empty-icon">⌁</div><h2>No projects yet</h2><p>Register an existing app folder. VPSDeck will detect its type automatically.</p><a class="button button-primary" href="/projects/new">Add existing project</a></div>
       {{end}}
+      <section class="panel discovery-panel">
+        <div class="panel-heading"><div><h2>Detected Docker Compose projects</h2><p>Discovered from Docker labels and Compose metadata.</p></div><span class="status status-{{.Data.Docker.Status}}"><i></i>{{.Data.Docker.Status}}</span></div>
+        {{if .Data.Docker.Projects}}
+        <div class="discovery-list">
+          {{range .Data.Docker.Projects}}
+          <article class="discovery-card">
+            <div><div class="discovery-title"><h3>{{.Name}}</h3><span class="status status-{{.Status}}"><i></i>{{.Status}}</span></div><p>{{.WorkingDir}}</p><small>{{.RunningCount}}/{{.ContainerCount}} containers running{{if .PrimaryPort}} · localhost:{{.PrimaryPort}}{{end}}</small></div>
+            {{if .Imported}}<a class="button" href="/projects/{{.ProjectID}}">Open project</a>{{else}}<form method="post" action="/projects/import/docker-compose"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="name" value="{{.Name}}"><button class="button button-primary" type="submit">Import project</button></form>{{end}}
+          </article>
+          {{end}}
+        </div>
+        {{else}}<p class="muted">{{.Data.Docker.Message}}</p>{{end}}
+      </section>
     </section>
   </main>
 </body>

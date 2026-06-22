@@ -32,6 +32,11 @@
           <div><span class="muted">Ollama</span><strong data-dashboard-ollama-version>{{if .Data.Ollama.Version}}v{{.Data.Ollama.Version}}{{else}}Unavailable{{end}}</strong></div>
           <p><span data-dashboard-ollama-installed>{{.Data.Ollama.InstalledCount}}</span> installed · <span data-dashboard-ollama-running>{{.Data.Ollama.RunningCount}}</span> loaded</p>
         </a>
+        <a class="monitor-summary panel" href="/projects">
+          <div class="monitor-summary-top"><div class="metric-icon green">DKR</div><span class="status status-{{.Data.Docker.Status}}"><i></i>{{.Data.Docker.Status}}</span></div>
+          <div><span class="muted">Docker Compose</span><strong>{{len .Data.Docker.Projects}}</strong></div>
+          <p>{{.Data.Docker.Running}} running · {{.Data.Docker.Stopped}} stopped</p>
+        </a>
       </div>
       <div class="two-column">
         <section class="panel">

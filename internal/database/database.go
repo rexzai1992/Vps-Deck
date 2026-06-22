@@ -274,6 +274,19 @@ func (db *DB) ProjectByID(ctx context.Context, id int64) (Project, error) {
 	return project, err
 }
 
+func (db *DB) ProjectByWorkingDir(ctx context.Context, workingDir string) (Project, error) {
+	var project Project
+	err := db.QueryRowContext(ctx, `
+		SELECT id, name, type, domain, port, working_dir, status, healthcheck_url, created_at, updated_at
+		FROM projects WHERE working_dir = ?
+	`, workingDir).Scan(
+		&project.ID, &project.Name, &project.Type, &project.Domain, &project.Port,
+		&project.WorkingDir, &project.Status, &project.HealthcheckURL,
+		&project.CreatedAt, &project.UpdatedAt,
+	)
+	return project, err
+}
+
 func (db *DB) CreateProject(ctx context.Context, project Project) (int64, error) {
 	result, err := db.ExecContext(ctx, `
 		INSERT INTO projects(name, type, domain, port, working_dir, status, healthcheck_url)
@@ -298,6 +311,15 @@ func (db *DB) DeleteProject(ctx context.Context, id int64) error {
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+func (db *DB) UpdateProjectRuntime(ctx context.Context, id int64, status string, port int) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE projects
+		SET status = ?, port = CASE WHEN ? > 0 THEN ? ELSE port END, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?
+	`, status, port, port, id)
+	return err
 }
 
 func (db *DB) ProjectCounts(ctx context.Context) (ProjectCounts, error) {
