@@ -334,9 +334,13 @@ func New(cfg config.Config, db *database.DB, authService *auth.Service, logger *
 }
 
 func (s *Server) home(c *gin.Context) {
-	if _, err := s.currentUser(c); err == nil {
-		c.Redirect(http.StatusSeeOther, "/dashboard")
-		return
+	// In demo mode always show the landing page so visitors see the demo CTA,
+	// not a redirect into the real admin account.
+	if !s.demoMode {
+		if _, err := s.currentUser(c); err == nil {
+			c.Redirect(http.StatusSeeOther, "/dashboard")
+			return
+		}
 	}
 	s.render(c, http.StatusOK, "landing.html", PageData{
 		Title:    "VPSDeck",
@@ -348,6 +352,11 @@ func (s *Server) demoLogin(c *gin.Context) {
 	if !s.demoMode {
 		c.Redirect(http.StatusSeeOther, "/login")
 		return
+	}
+	// Clear any existing session so admin users don't carry over their identity.
+	if existing, err := c.Cookie(sessionCookie); err == nil && existing != "" {
+		_ = s.auth.DeleteSession(c.Request.Context(), existing)
+		s.clearSessionCookie(c)
 	}
 	user, err := s.auth.Authenticate(c.Request.Context(), "demo", "demo")
 	if err != nil {
