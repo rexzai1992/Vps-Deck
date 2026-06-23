@@ -553,7 +553,8 @@ Advanced Mode may show a read-only command preview. Every long operation needs v
 - [x] Add existing-folder project registration.
 - [x] Add project cards and detail view.
 - [x] Add project-scoped file manager.
-- [ ] Add file upload and ZIP upload/extraction. (Regular upload works; safe ZIP extraction remains.)
+- [x] Upgrade the file manager into a Windows Explorer–style experience (live no-reload grid, multi-select, right-click context menu, drag-and-drop move/copy, drag-from-OS multi-upload, inline rename, keyboard shortcuts, Details/Icons views).
+- [ ] Add file upload and ZIP upload/extraction. (Multi-file upload and folder ZIP *download* work; safe ZIP *extraction* on upload remains.)
 - [x] Add text-file editor with path safety and backups.
 - [x] Add `.env` key-value editor.
 - [ ] Add basic project logs viewer.
@@ -594,7 +595,7 @@ Do not build Kubernetes, a full terminal, arbitrary public command execution, or
 
 ### Phase 4: Advanced VPS Access
 
-- [ ] Advanced full-filesystem mode
+- [x] Advanced full-filesystem mode (Advanced Mode gate + `/system/files` explorer over the configured root)
 - [ ] UFW manager
 - [ ] Cron manager
 - [ ] SSH key manager
@@ -604,7 +605,7 @@ Do not build Kubernetes, a full terminal, arbitrary public command execution, or
 
 - [ ] Backup and restore manager
 - [ ] Wider Telegram alerts
-- [ ] Panel self-update
+- [x] Panel self-update (detect new commits, one-click apply via privileged path-activated updater)
 - [ ] Multi-user roles
 - [ ] Historical resource charts
 
@@ -616,7 +617,7 @@ The first useful version is accepted when an administrator can:
 - [x] Open it in a browser and log in.
 - [x] See CPU, RAM, storage, and uptime.
 - [ ] Add an existing project.
-- [ ] Upload and edit project files.
+- [x] Upload and edit project files.
 - [x] Edit `.env`.
 - [ ] View logs.
 - [ ] Restart a project.
@@ -655,9 +656,18 @@ Inspection must be read-only unless the user authorizes installation or system c
 
 ## 16. Current Working State
 
-Last updated: **2026-06-22**
+Last updated: **2026-06-23**
 
 Completed:
+
+- [x] Rebuilt the project file manager as a Windows Explorer–style interface backed by a JSON API. Backend `internal/files` gained `Move`, `Copy` (recursive), `Rename`, `DeleteRecursive`, `NewFile`, and `ZipFolder`, all reusing the existing symlink/traversal containment helpers, with `uniqueTarget` auto-rename so nothing is ever overwritten and a guard against moving/copying a folder into itself or a descendant.
+- [x] Added authenticated JSON endpoints under `/api/projects/:id/files` (list, move, copy, rename, delete, new-file, new-folder, multi-file upload) plus `GET /projects/:id/files/download-zip`. Each mutation is CSRF-protected (X-CSRF-Token header from the readable csrf cookie) and audited (`file_move`, `file_copy`, `file_rename`, `file_delete`, `file_new`, `folder_create`, `file_upload`). Handlers live in `internal/web/files_api.go`.
+- [x] Rebuilt `web/templates/files.html` + `app.js` + `app.css` into a live explorer: click/Ctrl/Shift multi-select, right-click context menu, drag-and-drop move (Ctrl/Alt = copy) onto folders and breadcrumbs, drag-from-OS multi-upload overlay, inline rename (F2), keyboard shortcuts (Del, Ctrl+A/C/X/V, Enter, Backspace), Details/Icons view toggle (persisted), and toast notifications. A `<noscript>` read-only listing remains as a fallback.
+- [x] Recursive folder delete is gated behind an explicit browser confirmation (strong wording when folders are involved) and recorded as a recursive delete in the audit log.
+- [x] Added file-operation unit tests (move, descendant guard, auto-rename, recursive copy, rename conflicts, recursive delete, new-file, ZIP) and a `TestFileExplorerAPI` integration test. Full suite passes with `go test -race ./...`, `go vet ./...`, `go build ./cmd/server`, and `node --check web/static/app.js`.
+- [x] Added VPSDeck **self-update**. New `internal/selfupdate` compares the local checkout HEAD (`git rev-parse`) against the remote branch (`git ls-remote origin`, read-only, no token) and exposes a cached snapshot, a request flag, and the apply status. New **Updates** page (`/system/updates`), `GET /api/system/update`, and CSRF-protected check/apply, plus a dashboard "update available" banner and sidebar link. Because the panel is unprivileged, **Update now** only writes `/var/lib/vpsdeck/update.request`; the new root-owned `vpsdeck-update.path`/`.service` units run `scripts/update.sh`, which clears the flag and writes JSON progress to `/var/lib/vpsdeck/update.status` (rolls back on health-check failure). Installer + INSTALL.md wired. Live-smoke verified (current↔remote compare, page render, flag written).
+- [x] Added **Advanced Mode + full-filesystem explorer**. New `security.advanced_mode` config (enabled, root default `/`, timeout_minutes, optional second_password). Migration v4 adds `sessions.advanced_until`; auth gains Enable/Disable/AdvancedStatus (per-session, time-boxed). New `/advanced` page (password re-confirmation + optional second password → time-limited activation, audited; disable button), `requireAdvancedPage`/`requireAdvancedAPI` gates, and a **System Files** explorer at `/system/files` + `/api/system/files/*` that reuses the whole explorer engine via a synthetic project rooted at the advanced root. The explorer JS now reads `data-files-base`/`data-files-api` (project pages fall back to project id); `file_edit.html` is parameterized with a base path. Sidebar shows an ADVANCED section and the mode indicator only when active. Files API handlers were refactored so project and advanced explorers share one set of action bodies. Tests cover the gate (block → wrong password → enable → list/create → disable) and live-smoke confirmed listing `/` and `/etc`.
+- [x] Added **GitHub account connect (OAuth App)**. New `internal/github` package: AES-256-GCM token seal/open, REST client (exchange code, current user, list repos, list branches), and a service. Migration v3 adds `github_accounts` (token encrypted at rest) and `requires_auth`/`owner`/`repo` columns on `project_sources`. Web routes: `/integrations/github/connect` (state cookie → authorize), `/callback` (state-verified), `/disconnect`, and `GET /api/integrations/github/repos|branches`. Add Project page gains a Connect button + searchable repo/branch picker (manual URL stays as a fallback; avatar omitted because external images are CSP-blocked). Private clones/fetches authenticate via a temporary `GIT_ASKPASS` helper — token never in argv/URL. Config block `integrations.github` (secrets via `VPSDECK_GITHUB_*` env). Unit + mocked-HTTP tests; OAuth start live-smoke verified.
 
 - [x] Read and consolidated the full VPSDeck build specification.
 - [x] Confirmed the repository was empty before implementation.
@@ -712,8 +722,8 @@ In progress:
 
 Next action:
 
-1. Add private GitHub repository authentication using scoped deploy keys or a GitHub App without storing tokens in repository URLs.
-2. Move longer deployments to a persistent background worker with live progress polling.
+1. On the production VPS, re-run `scripts/install.sh` (or copy the two `vpsdeck-update.*` units and `systemctl enable --now vpsdeck-update.path`) so browser "Update now" works, and register the GitHub OAuth App + set `VPSDECK_GITHUB_*` env to enable the connect flow in production.
+2. Move longer deployments to a persistent background worker with live progress polling (deployments and self-update apply are both good candidates for live step streaming).
 3. Add allowlisted Node.js, Python, and Go build/restart adapters.
 
 Known blockers:
@@ -728,7 +738,11 @@ Decisions made:
 - Bootstrap the first administrator from `VPSDECK_ADMIN_USERNAME` and `VPSDECK_ADMIN_PASSWORD`.
 - Restrict local Simple Mode projects to `./managed-apps` by default.
 - Reject upload overwrites; require an explicit edit flow for existing text files.
-- Delete files and empty folders only. Recursive folder deletion is not yet exposed.
+- Delete files and empty folders without confirmation; recursive (non-empty folder) deletion is exposed only through an explicit confirmation and is audited as a recursive delete.
+- Move and copy never overwrite: a name collision auto-renames the new item to `name (2)`, `name (3)`, etc. Copy is recursive and skips symlinks so a copy can never escape the project root.
+- Panel self-update keeps the unprivileged service unprivileged: the panel only writes a request flag; a separate root `vpsdeck-update.path`/`.service` does the rebuild/restart. `NoNewPrivileges=true` on `vpsdeck.service` stays. Update detection uses `git ls-remote` (no token, public repo).
+- GitHub OAuth: single OAuth App per VPSDeck instance; tokens stored AES-256-GCM encrypted under `integrations.github.token_key`; the single-admin MVP uses the most-recently-connected account's token for private deploys (`GitHubAccountAny`). Tokens reach git only through a temporary `GIT_ASKPASS` helper.
+- Advanced Mode is per-session and time-boxed (`sessions.advanced_until`, default 15 min), requires password re-confirmation (+ optional config second password), and is audited. The full-filesystem explorer (`/system/files`, root default `/`) reuses the project file service through a synthetic `database.Project{ID:0, WorkingDir: advancedRoot}` — so the same containment/symlink/backup logic applies, just with a wider root. It is the deliberate exception to the "Simple Mode restricted to registered project roots" rule, gated behind Advanced Mode per the security spec. The OS user's own permissions still bound what can actually be read/written.
 - Monitor only one configured Ollama endpoint at a time; use `VPSDECK_OLLAMA_BASE_URL` for environment-specific overrides.
 - Keep Ollama installation guidance read-only. VPSDeck never executes the displayed installation commands.
 - Cache port and Ollama snapshots for `monitoring.refresh_seconds`.

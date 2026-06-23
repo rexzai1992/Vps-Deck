@@ -1,3 +1,20 @@
+{{define "githubManualForm"}}
+<form method="post" action="/projects/import/github">
+  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+  <div class="form-grid">
+    <label class="span-two"><span>GitHub repository URL</span><input name="repository_url" type="url" placeholder="https://github.com/owner/repository" required><small>Public HTTPS repositories are supported. Credentials in URLs are rejected.</small></label>
+    <label><span>Project name</span><input name="name" placeholder="My application" maxlength="100" required></label>
+    <label><span>Branch</span><input name="branch" value="main" maxlength="200" required></label>
+    <label><span>Server folder <em>optional</em></span><input name="directory" placeholder="Uses repository name"></label>
+    <label><span>Deployment mode</span><select name="deploy_mode"><option value="git">Sync Git code only</option><option value="docker-compose">Git + Docker Compose rebuild</option></select></label>
+    <label><span>Domain <em>optional</em></span><input name="domain" placeholder="app.example.com"></label>
+    <label><span>Local port <em>optional</em></span><input name="port" type="number" min="1" max="65535" placeholder="3000"></label>
+    <label class="span-two"><span>Health-check URL <em>optional</em></span><input name="healthcheck_url" type="url" placeholder="http://127.0.0.1:3000/health"></label>
+  </div>
+  <div class="form-actions"><button class="button button-primary" type="submit">Clone GitHub project</button></div>
+</form>
+{{end}}
+
 {{define "project_new.html"}}
 <!doctype html>
 <html lang="en">
@@ -14,23 +31,41 @@
       <div class="import-grid">
         <section class="panel import-panel">
           <div class="import-panel-title"><div class="provider-icon">GH</div><div><p class="eyebrow">RECOMMENDED</p><h2>Deploy from GitHub</h2><p>VPSDeck clones the repository into <code>{{.Data.AppsDir}}</code>, then opens the visual environment editor.</p></div></div>
-          {{if .Data.DeploymentsEnabled}}
-          <form method="post" action="/projects/import/github">
+          {{if not .Data.DeploymentsEnabled}}
+          <div class="alert alert-warning">GitHub deployments are disabled in the VPSDeck configuration.</div>
+          {{else if and .Data.GitHubEnabled .Data.GitHubConnected}}
+          <div class="github-account">
+            <div><span class="github-dot"></span>Connected as <strong>@{{.Data.GitHubLogin}}</strong></div>
+            <form method="post" action="/integrations/github/disconnect"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><button class="text-button" type="submit">Disconnect</button></form>
+          </div>
+          <div class="github-picker" data-github-picker>
+            <input type="search" data-github-search placeholder="Search your repositories…" autocomplete="off">
+            <div class="github-repo-list" data-github-repos><div class="folder-loading">Loading repositories…</div></div>
+          </div>
+          <form method="post" action="/projects/import/github" data-github-form>
             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <input type="hidden" name="owner" data-github-owner>
+            <input type="hidden" name="repo" data-github-repo>
+            <input type="hidden" name="private" data-github-private value="false">
             <div class="form-grid">
-              <label class="span-two"><span>GitHub repository URL</span><input name="repository_url" type="url" placeholder="https://github.com/owner/repository" required><small>Public HTTPS repositories are supported. Credentials in URLs are rejected.</small></label>
-              <label><span>Project name</span><input name="name" placeholder="My application" maxlength="100" required></label>
-              <label><span>Branch</span><input name="branch" value="main" maxlength="200" required></label>
+              <label class="span-two"><span>Selected repository</span><input data-github-selected placeholder="Pick a repository above" readonly required></label>
+              <label><span>Project name</span><input name="name" data-github-name placeholder="My application" maxlength="100" required></label>
+              <label><span>Branch</span><select name="branch" data-github-branch disabled><option value="">Select a repository first</option></select></label>
               <label><span>Server folder <em>optional</em></span><input name="directory" placeholder="Uses repository name"><small>Created inside <code>{{.Data.AppsDir}}</code>.</small></label>
               <label><span>Deployment mode</span><select name="deploy_mode"><option value="git">Sync Git code only</option><option value="docker-compose">Git + Docker Compose rebuild</option></select></label>
               <label><span>Domain <em>optional</em></span><input name="domain" placeholder="app.example.com"></label>
               <label><span>Local port <em>optional</em></span><input name="port" type="number" min="1" max="65535" placeholder="3000"></label>
               <label class="span-two"><span>Health-check URL <em>optional</em></span><input name="healthcheck_url" type="url" placeholder="http://127.0.0.1:3000/health"></label>
             </div>
-            <div class="form-actions"><button class="button button-primary" type="submit">Clone GitHub project</button></div>
+            <div class="form-actions"><button class="button button-primary" type="submit" data-github-submit disabled>Deploy selected repository</button></div>
           </form>
+          {{else if .Data.GitHubEnabled}}
+          <p class="muted">Connect your GitHub account to browse and deploy your repositories — including private ones — without pasting a URL.</p>
+          <p><a class="button button-primary" href="/integrations/github/connect">Connect GitHub</a></p>
+          <details class="github-manual"><summary>Or paste a public repository URL</summary>{{template "githubManualForm" .}}</details>
           {{else}}
-          <div class="alert alert-warning">GitHub deployments are disabled in the VPSDeck configuration.</div>
+          <p class="muted github-setup-hint">Tip: connect a GitHub account to browse and one-click deploy your repositories (including private ones). To enable it, run <code>sudo /opt/vpsdeck/src/scripts/enable-github.sh</code> on the server (see <code>docs/INSTALL.md</code>). For now, paste a public repository URL:</p>
+          {{template "githubManualForm" .}}
           {{end}}
         </section>
 

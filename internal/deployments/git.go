@@ -31,24 +31,38 @@ var ErrDeploymentInProgress = errors.New("a deployment is already running for th
 type ImportInput struct {
 	Name           string
 	RepositoryURL  string
+	Owner          string
+	Repo           string
 	Branch         string
 	Directory      string
 	DeployMode     string
 	Domain         string
 	Port           int
 	HealthcheckURL string
+	Token          string
+	RequiresAuth   bool
 }
 
+// TokenProvider supplies a GitHub access token for authenticated fetches of
+// private repositories. It is optional; without it private deploys fail clearly.
+type TokenProvider func(ctx context.Context) (string, error)
+
 type Service struct {
-	db          *database.DB
-	projects    *projects.Service
-	appsDir     string
-	enabled     bool
-	gitCommand  string
-	dockerCmd   string
-	timeout     time.Duration
-	lockMu      sync.Mutex
-	activeLocks map[int64]bool
+	db            *database.DB
+	projects      *projects.Service
+	appsDir       string
+	enabled       bool
+	gitCommand    string
+	dockerCmd     string
+	timeout       time.Duration
+	tokenProvider TokenProvider
+	lockMu        sync.Mutex
+	activeLocks   map[int64]bool
+}
+
+// SetTokenProvider wires a source of GitHub tokens for private-repo deployments.
+func (s *Service) SetTokenProvider(provider TokenProvider) {
+	s.tokenProvider = provider
 }
 
 func NewService(
@@ -84,9 +98,22 @@ func (s *Service) ImportGitHub(ctx context.Context, input ImportInput) (database
 	if !s.enabled {
 		return database.Project{}, errors.New("GitHub deployments are disabled")
 	}
-	repositoryURL, repositoryName, err := normalizeGitHubURL(input.RepositoryURL)
-	if err != nil {
-		return database.Project{}, err
+	var repositoryURL, repositoryName string
+	owner := strings.TrimSpace(input.Owner)
+	repo := strings.TrimSpace(input.Repo)
+	if owner != "" || repo != "" {
+		if !githubPartPattern.MatchString(owner) || !githubPartPattern.MatchString(repo) ||
+			owner == "." || owner == ".." || repo == "." || repo == ".." {
+			return database.Project{}, errors.New("invalid GitHub owner or repository")
+		}
+		repositoryURL = "https://github.com/" + owner + "/" + repo + ".git"
+		repositoryName = repo
+	} else {
+		var err error
+		repositoryURL, repositoryName, err = normalizeGitHubURL(input.RepositoryURL)
+		if err != nil {
+			return database.Project{}, err
+		}
 	}
 	branch, err := normalizeBranch(input.Branch)
 	if err != nil {
@@ -115,7 +142,7 @@ func (s *Service) ImportGitHub(ctx context.Context, input ImportInput) (database
 
 	commandCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
-	output, err := s.run(commandCtx, "", s.gitCommand,
+	output, err := s.runGit(commandCtx, "", input.Token,
 		"clone", "--depth", "1", "--branch", branch, "--single-branch", "--", repositoryURL, destination)
 	if err != nil {
 		_ = os.RemoveAll(destination)
@@ -155,6 +182,9 @@ func (s *Service) ImportGitHub(ctx context.Context, input ImportInput) (database
 		Branch:         branch,
 		DeployMode:     deployMode,
 		LastCommit:     commit,
+		RequiresAuth:   input.RequiresAuth,
+		Owner:          owner,
+		Repo:           repo,
 		LastDeployedAt: &now,
 	}
 	if err := s.db.CreateProjectSource(ctx, source); err != nil {
@@ -204,6 +234,16 @@ func (s *Service) Deploy(ctx context.Context, project database.Project) (databas
 
 	commandCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
+	var token string
+	if source.RequiresAuth {
+		if s.tokenProvider == nil {
+			return database.Deployment{}, errors.New("this private repository needs a connected GitHub account to deploy")
+		}
+		token, err = s.tokenProvider(commandCtx)
+		if err != nil {
+			return database.Deployment{}, err
+		}
+	}
 	var log strings.Builder
 	finishFailure := func(cause error) (database.Deployment, error) {
 		deployment.State = "failed"
@@ -234,7 +274,7 @@ func (s *Service) Deploy(ctx context.Context, project database.Project) (databas
 		return finishFailure(errors.New("deployment stopped because tracked project files have local changes"))
 	}
 
-	output, err = s.run(commandCtx, project.WorkingDir, s.gitCommand, "fetch", "--prune", "origin", source.Branch)
+	output, err = s.runGit(commandCtx, project.WorkingDir, token, "fetch", "--prune", "origin", source.Branch)
 	logCommand(&log, "Fetch origin/"+source.Branch, output)
 	if err != nil {
 		return finishFailure(fmt.Errorf("fetch GitHub branch: %w", commandError(err, output)))
@@ -298,6 +338,30 @@ func (s *Service) release(projectID int64) {
 }
 
 func (s *Service) run(ctx context.Context, directory, command string, arguments ...string) (string, error) {
+	return s.runEnv(ctx, directory, command, []string{"GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=/bin/false"}, arguments...)
+}
+
+// runGit runs the configured git command, supplying an access token through a
+// temporary GIT_ASKPASS helper when one is given. The token is never placed in
+// the command line, the repository URL, or the environment of any logged output.
+func (s *Service) runGit(ctx context.Context, directory, token string, arguments ...string) (string, error) {
+	if strings.TrimSpace(token) == "" {
+		return s.run(ctx, directory, s.gitCommand, arguments...)
+	}
+	scriptPath, tempDir, err := writeAskpass()
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(tempDir)
+	env := []string{
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_ASKPASS=" + scriptPath,
+		"VPSDECK_GH_TOKEN=" + token,
+	}
+	return s.runEnv(ctx, directory, s.gitCommand, env, arguments...)
+}
+
+func (s *Service) runEnv(ctx context.Context, directory, command string, extraEnv []string, arguments ...string) (string, error) {
 	if strings.TrimSpace(command) == "" {
 		return "", errors.New("required command is not configured")
 	}
@@ -305,10 +369,7 @@ func (s *Service) run(ctx context.Context, directory, command string, arguments 
 	if directory != "" {
 		item.Dir = directory
 	}
-	item.Env = append(os.Environ(),
-		"GIT_TERMINAL_PROMPT=0",
-		"GIT_ASKPASS=/bin/false",
-	)
+	item.Env = append(os.Environ(), extraEnv...)
 	buffer := &limitedBuffer{limit: maxCommandOutput}
 	item.Stdout = buffer
 	item.Stderr = buffer
@@ -318,6 +379,22 @@ func (s *Service) run(ctx context.Context, directory, command string, arguments 
 		return content, errors.New("command timed out")
 	}
 	return content, err
+}
+
+// writeAskpass creates a short-lived helper script that answers git credential
+// prompts with the username "x-access-token" and the token from VPSDECK_GH_TOKEN.
+func writeAskpass() (scriptPath, dir string, err error) {
+	dir, err = os.MkdirTemp("", "vpsdeck-askpass-")
+	if err != nil {
+		return "", "", fmt.Errorf("prepare credential helper: %w", err)
+	}
+	scriptPath = filepath.Join(dir, "askpass.sh")
+	script := "#!/bin/sh\ncase \"$1\" in\n  Username*) printf '%s' \"x-access-token\" ;;\n  *) printf '%s' \"$VPSDECK_GH_TOKEN\" ;;\nesac\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o700); err != nil {
+		_ = os.RemoveAll(dir)
+		return "", "", fmt.Errorf("write credential helper: %w", err)
+	}
+	return scriptPath, dir, nil
 }
 
 type limitedBuffer struct {

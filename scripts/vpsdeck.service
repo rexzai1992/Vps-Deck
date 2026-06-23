@@ -10,6 +10,9 @@ Group=vpsdeck
 WorkingDirectory=/opt/vpsdeck/src
 Environment=HOME=/var/lib/vpsdeck
 Environment=PATH=/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+# Optional GitHub OAuth secrets (created by scripts/enable-github.sh). The leading
+# dash means the service still starts if the file is absent.
+EnvironmentFile=-/etc/vpsdeck/github.env
 ExecStart=/usr/local/bin/vpsdeck -config /etc/vpsdeck/config.yaml
 Restart=always
 RestartSec=3

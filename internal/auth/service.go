@@ -125,6 +125,37 @@ func (s *Service) DeleteSession(ctx context.Context, rawToken string) error {
 	return s.db.DeleteSession(ctx, hashToken(rawToken))
 }
 
+// EnableAdvanced marks the session as Advanced Mode for the given duration.
+func (s *Service) EnableAdvanced(ctx context.Context, rawToken string, duration time.Duration) (time.Time, error) {
+	if rawToken == "" {
+		return time.Time{}, ErrInvalidCredentials
+	}
+	until := time.Now().UTC().Add(duration)
+	if err := s.db.SetSessionAdvanced(ctx, hashToken(rawToken), until); err != nil {
+		return time.Time{}, err
+	}
+	return until, nil
+}
+
+func (s *Service) DisableAdvanced(ctx context.Context, rawToken string) error {
+	if rawToken == "" {
+		return nil
+	}
+	return s.db.ClearSessionAdvanced(ctx, hashToken(rawToken))
+}
+
+// AdvancedStatus reports whether the session currently has Advanced Mode active.
+func (s *Service) AdvancedStatus(ctx context.Context, rawToken string) (active bool, until time.Time) {
+	if rawToken == "" {
+		return false, time.Time{}
+	}
+	expiry, ok, err := s.db.SessionAdvancedUntil(ctx, hashToken(rawToken), time.Now().UTC())
+	if err != nil || !ok {
+		return false, time.Time{}
+	}
+	return true, expiry
+}
+
 func NewCSRFToken() (string, error) {
 	return randomToken(32)
 }
