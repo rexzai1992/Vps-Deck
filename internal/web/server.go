@@ -255,6 +255,7 @@ func New(cfg config.Config, db *database.DB, authService *auth.Service, logger *
 	router.StaticFS("/static", http.FS(staticFiles))
 	router.GET("/healthz", server.health)
 	router.GET("/", server.home)
+	router.GET("/demo", server.demoLogin)
 	router.GET("/login", server.loginPage)
 	router.POST("/login", server.limitBody(1<<20), server.csrfRequired(), server.login)
 
@@ -337,7 +338,29 @@ func (s *Server) home(c *gin.Context) {
 		c.Redirect(http.StatusSeeOther, "/dashboard")
 		return
 	}
-	c.Redirect(http.StatusSeeOther, "/login")
+	s.render(c, http.StatusOK, "landing.html", PageData{
+		Title:    "VPSDeck",
+		DemoMode: s.demoMode,
+	})
+}
+
+func (s *Server) demoLogin(c *gin.Context) {
+	if !s.demoMode {
+		c.Redirect(http.StatusSeeOther, "/login")
+		return
+	}
+	user, err := s.auth.Authenticate(c.Request.Context(), "demo", "demo")
+	if err != nil {
+		c.Redirect(http.StatusSeeOther, "/login?error="+url.QueryEscape("Demo login unavailable."))
+		return
+	}
+	token, expiresAt, err := s.auth.CreateSession(c.Request.Context(), user.ID)
+	if err != nil {
+		c.Redirect(http.StatusSeeOther, "/login")
+		return
+	}
+	s.setSessionCookie(c, token, expiresAt)
+	c.Redirect(http.StatusSeeOther, "/dashboard")
 }
 
 func (s *Server) health(c *gin.Context) {

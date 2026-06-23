@@ -1,0 +1,255 @@
+{{define "landing.html"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VPSDeck — Your server, without the terminal</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <style>
+    /* ── Landing page layout ── */
+    .land-body { background: #0d0e16; color: #e8e9f0; min-height: 100vh; margin: 0; font: 14px/1.6 Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; }
+
+    /* Nav */
+    .land-nav { display: flex; align-items: center; justify-content: space-between; padding: 0 40px; height: 64px; border-bottom: 1px solid rgba(255,255,255,.08); position: sticky; top: 0; background: rgba(13,14,22,.88); backdrop-filter: blur(12px); z-index: 20; }
+    .land-brand { display: flex; align-items: center; gap: 10px; font-weight: 750; font-size: 16px; color: white; text-decoration: none; }
+    .land-nav-links { display: flex; align-items: center; gap: 20px; }
+    .land-nav-links a { color: #a0a3b1; font-weight: 600; font-size: 13px; text-decoration: none; transition: color .15s; }
+    .land-nav-links a:hover { color: white; }
+    .land-nav-links .btn-signin { padding: 7px 16px; border-radius: 8px; background: rgba(109,74,255,.18); border: 1px solid rgba(109,74,255,.35); color: #c4b5ff; font-weight: 650; transition: background .15s; }
+    .land-nav-links .btn-signin:hover { background: rgba(109,74,255,.32); color: white; }
+
+    /* Hero */
+    .land-hero { max-width: 1100px; margin: 0 auto; padding: 90px 40px 60px; display: grid; grid-template-columns: 1fr 1fr; gap: 60px; align-items: center; }
+    .land-hero-text .eyebrow { font-size: 11px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; color: #8b6fff; margin: 0 0 16px; }
+    .land-hero-text h1 { font-size: 46px; line-height: 1.1; font-weight: 800; letter-spacing: -1.5px; margin: 0 0 18px; color: white; }
+    .land-hero-text h1 span { background: linear-gradient(135deg, #a78bff, #6d4aff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .land-hero-text p { color: #9295a8; font-size: 16px; margin: 0 0 32px; line-height: 1.65; }
+    .land-cta { display: flex; gap: 12px; flex-wrap: wrap; }
+    .btn-demo { display: inline-flex; align-items: center; gap: 8px; padding: 13px 26px; border-radius: 11px; background: linear-gradient(135deg, #8d6bff, #5735e8); color: white; font-weight: 700; font-size: 15px; text-decoration: none; box-shadow: 0 8px 28px rgba(109,74,255,.38); transition: transform .15s, box-shadow .15s; }
+    .btn-demo:hover { transform: translateY(-2px); box-shadow: 0 12px 36px rgba(109,74,255,.48); }
+    .btn-gh { display: inline-flex; align-items: center; gap: 8px; padding: 13px 22px; border-radius: 11px; border: 1px solid rgba(255,255,255,.14); color: #c8cad8; font-weight: 650; font-size: 15px; text-decoration: none; transition: border-color .15s, color .15s; }
+    .btn-gh:hover { border-color: rgba(255,255,255,.3); color: white; }
+    .demo-note { margin-top: 14px; font-size: 12px; color: #5c5f72; }
+    .demo-note code { color: #8b6fff; background: rgba(109,74,255,.12); padding: 1px 5px; border-radius: 4px; }
+
+    /* Dashboard preview card */
+    .land-preview { background: #131420; border: 1px solid rgba(255,255,255,.1); border-radius: 18px; overflow: hidden; box-shadow: 0 40px 100px rgba(0,0,0,.6); }
+    .preview-bar { display: flex; align-items: center; gap: 6px; padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,.07); background: #0f1019; }
+    .preview-bar i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+    .preview-bar i:nth-child(1) { background: #ff5f57; }
+    .preview-bar i:nth-child(2) { background: #febc2e; }
+    .preview-bar i:nth-child(3) { background: #28c840; }
+    .preview-bar span { margin-left: 10px; font-size: 11px; color: #555770; font-family: ui-monospace, monospace; }
+    .preview-body { padding: 18px; }
+    .preview-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+    .pm { background: #1a1c2e; border: 1px solid rgba(255,255,255,.07); border-radius: 10px; padding: 12px; }
+    .pm-label { font-size: 9px; font-weight: 800; letter-spacing: .8px; text-transform: uppercase; color: #555770; margin-bottom: 6px; }
+    .pm-val { font-size: 18px; font-weight: 750; letter-spacing: -.5px; color: white; }
+    .pm-sub { font-size: 10px; color: #555770; margin-top: 2px; }
+    .pm-bar { height: 3px; border-radius: 2px; background: #2a2c3e; margin-top: 8px; overflow: hidden; }
+    .pm-bar span { display: block; height: 100%; border-radius: 2px; }
+    .preview-projects { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .pp { background: #1a1c2e; border: 1px solid rgba(255,255,255,.07); border-radius: 10px; padding: 12px; display: flex; align-items: center; gap: 10px; }
+    .pp-icon { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; font-size: 11px; font-weight: 800; flex-shrink: 0; }
+    .pp-name { font-size: 12px; font-weight: 700; color: #dde0ee; }
+    .pp-type { font-size: 10px; color: #555770; }
+    .dot-run { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #16a36a; box-shadow: 0 0 6px rgba(22,163,106,.5); }
+    .dot-stop { background: #555770; box-shadow: none; }
+    .pp-status { margin-left: auto; }
+
+    /* Features */
+    .land-features { max-width: 1100px; margin: 0 auto; padding: 80px 40px; }
+    .land-features h2 { text-align: center; font-size: 30px; font-weight: 780; letter-spacing: -.8px; color: white; margin: 0 0 10px; }
+    .land-features > p { text-align: center; color: #666879; margin: 0 0 48px; font-size: 15px; }
+    .feat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .feat { background: #131420; border: 1px solid rgba(255,255,255,.08); border-radius: 16px; padding: 24px; transition: border-color .2s, transform .2s; }
+    .feat:hover { border-color: rgba(109,74,255,.4); transform: translateY(-3px); }
+    .feat-icon { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; font-size: 18px; margin-bottom: 14px; }
+    .feat h3 { margin: 0 0 7px; font-size: 15px; font-weight: 720; color: white; }
+    .feat p { margin: 0; font-size: 13px; color: #666879; line-height: 1.55; }
+
+    /* Install strip */
+    .land-install { max-width: 1100px; margin: 0 auto 80px; padding: 0 40px; }
+    .install-card { background: #131420; border: 1px solid rgba(109,74,255,.25); border-radius: 18px; padding: 36px 40px; display: flex; align-items: center; justify-content: space-between; gap: 40px; }
+    .install-card h3 { margin: 0 0 6px; color: white; font-size: 20px; font-weight: 750; }
+    .install-card p { margin: 0; color: #666879; font-size: 14px; }
+    .install-code { flex: 1; background: #0a0b12; border-radius: 12px; padding: 18px 22px; font: 13px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; color: #c4b5ff; white-space: pre; overflow-x: auto; }
+
+    /* Footer */
+    .land-footer { border-top: 1px solid rgba(255,255,255,.07); padding: 28px 40px; display: flex; align-items: center; justify-content: space-between; color: #44475a; font-size: 12px; }
+    .land-footer a { color: #555770; text-decoration: none; }.land-footer a:hover { color: #a0a3b1; }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+      .land-hero { grid-template-columns: 1fr; }.land-preview { display: none; }
+      .feat-grid { grid-template-columns: 1fr 1fr; }
+      .install-card { flex-direction: column; }
+      .preview-metrics { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 600px) {
+      .land-nav { padding: 0 18px; }.land-hero { padding: 60px 18px 40px; }
+      .land-hero-text h1 { font-size: 32px; }
+      .feat-grid { grid-template-columns: 1fr; }
+      .land-features, .land-install { padding-left: 18px; padding-right: 18px; }
+      .land-footer { flex-direction: column; gap: 8px; text-align: center; }
+    }
+  </style>
+</head>
+<body class="land-body">
+
+  <!-- Nav -->
+  <nav class="land-nav">
+    <a class="land-brand" href="/">
+      <span class="brand-mark">V</span>
+      VPSDeck
+    </a>
+    <div class="land-nav-links">
+      <a href="https://github.com/rexzai1992/Vps-Deck" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn-signin" href="/login">Sign in</a>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="land-hero">
+    <div class="land-hero-text">
+      <p class="eyebrow">Open source · Self-hosted</p>
+      <h1>Your server,<br><span>without the terminal</span></h1>
+      <p>Deploy from GitHub, manage files, monitor CPU &amp; RAM, run Ollama models — all from a clean browser UI that lives on your own VPS.</p>
+      <div class="land-cta">
+        {{if .DemoMode}}
+        <a class="btn-demo" href="/demo">Try demo &nbsp;→</a>
+        {{else}}
+        <a class="btn-demo" href="/login">Get started &nbsp;→</a>
+        {{end}}
+        <a class="btn-gh" href="https://github.com/rexzai1992/Vps-Deck" target="_blank" rel="noopener">
+          <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+          View on GitHub
+        </a>
+      </div>
+      {{if .DemoMode}}
+      <p class="demo-note">No sign-up needed · logs in as <code>demo</code> / <code>demo</code> · read-only</p>
+      {{end}}
+    </div>
+
+    <!-- Dashboard preview -->
+    <div class="land-preview">
+      <div class="preview-bar">
+        <i></i><i></i><i></i>
+        <span>vps.izzul.xyz · dashboard</span>
+      </div>
+      <div class="preview-body">
+        <div class="preview-metrics">
+          <div class="pm">
+            <div class="pm-label">CPU</div>
+            <div class="pm-val">14.3%</div>
+            <div class="pm-sub">4 cores</div>
+            <div class="pm-bar"><span style="width:14%;background:#6d4aff"></span></div>
+          </div>
+          <div class="pm">
+            <div class="pm-label">RAM</div>
+            <div class="pm-val">1.6 GB</div>
+            <div class="pm-sub">of 4 GB</div>
+            <div class="pm-bar"><span style="width:40%;background:#1685a8"></span></div>
+          </div>
+          <div class="pm">
+            <div class="pm-label">Disk</div>
+            <div class="pm-val">21.3%</div>
+            <div class="pm-sub">18 / 80 GB</div>
+            <div class="pm-bar"><span style="width:21%;background:#aa6b0b"></span></div>
+          </div>
+          <div class="pm">
+            <div class="pm-label">Uptime</div>
+            <div class="pm-val">14d</div>
+            <div class="pm-sub">6h 32m</div>
+          </div>
+        </div>
+        <div class="preview-projects">
+          <div class="pp">
+            <div class="pp-icon" style="background:#1a1f3a;color:#8b6fff">S</div>
+            <div><div class="pp-name">storefront</div><div class="pp-type">docker-compose</div></div>
+            <div class="pp-status"><span class="dot-run"></span></div>
+          </div>
+          <div class="pp">
+            <div class="pp-icon" style="background:#0f1f1c;color:#16a36a">A</div>
+            <div><div class="pp-name">api-gateway</div><div class="pp-type">docker-compose</div></div>
+            <div class="pp-status"><span class="dot-run"></span></div>
+          </div>
+          <div class="pp">
+            <div class="pp-icon" style="background:#1a1f2e;color:#6d9fff">B</div>
+            <div><div class="pp-name">blog</div><div class="pp-type">docker-compose</div></div>
+            <div class="pp-status"><span class="dot-run"></span></div>
+          </div>
+          <div class="pp">
+            <div class="pp-icon" style="background:#1a1a1a;color:#555770">A</div>
+            <div><div class="pp-name">admin-panel</div><div class="pp-type">docker-compose</div></div>
+            <div class="pp-status"><span class="dot-stop"></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="land-features">
+    <h2>Everything you need to run a VPS</h2>
+    <p>Secure, self-hosted, and built for people who'd rather click than type.</p>
+    <div class="feat-grid">
+      <div class="feat">
+        <div class="feat-icon" style="background:#1a1f3a">▦</div>
+        <h3>Live dashboard</h3>
+        <p>Real-time CPU, RAM, disk, uptime, kernel, and IP — refreshed every few seconds without page reloads.</p>
+      </div>
+      <div class="feat">
+        <div class="feat-icon" style="background:#0f1f1c">⇅</div>
+        <h3>GitHub deployments</h3>
+        <p>Clone repos, run fast-forward-only git pulls, trigger Docker Compose rebuilds — all from one button.</p>
+      </div>
+      <div class="feat">
+        <div class="feat-icon" style="background:#1a1c15">□</div>
+        <h3>File manager</h3>
+        <p>Explorer-style drag-and-drop, multi-select, inline rename, ZIP download, and a built-in text editor.</p>
+      </div>
+      <div class="feat">
+        <div class="feat-icon" style="background:#1a1525">◉</div>
+        <h3>Ollama monitor</h3>
+        <p>See installed models, loaded models, VRAM usage, and run a prompt playground — all in one view.</p>
+      </div>
+      <div class="feat">
+        <div class="feat-icon" style="background:#1a1a10">⇄</div>
+        <h3>Port monitor</h3>
+        <p>Live TCP/UDP listener table with per-process names and automatic project-port association.</p>
+      </div>
+      <div class="feat">
+        <div class="feat-icon" style="background:#1f1518">⚙</div>
+        <h3>Advanced Mode</h3>
+        <p>Full-filesystem Explorer unlocked by password re-confirm, with an inactivity timeout and full audit log.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Install strip -->
+  <div class="land-install">
+    <div class="install-card">
+      <div>
+        <h3>Install on Ubuntu in one command</h3>
+        <p>Creates a system user, builds the binary, configures systemd and Nginx.</p>
+      </div>
+      <pre class="install-code">git clone https://github.com/rexzai1992/Vps-Deck.git /tmp/vpsdeck-src
+sudo bash /tmp/vpsdeck-src/scripts/install.sh</pre>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="land-footer">
+    <span>© 2025 VPSDeck · MIT License</span>
+    <span>
+      <a href="https://github.com/rexzai1992/Vps-Deck" target="_blank" rel="noopener">GitHub</a>
+      &nbsp;·&nbsp;
+      <a href="/login">Sign in</a>
+    </span>
+  </footer>
+
+</body>
+</html>
+{{end}}
