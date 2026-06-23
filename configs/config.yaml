@@ -24,6 +24,13 @@ deployments:
   git_command: git
   timeout_seconds: 300
 
+updates:
+  enabled: true
+  source_dir: .
+  branch: main
+  git_command: git
+  check_interval_minutes: 30
+
 monitoring:
   refresh_seconds: 5
 

@@ -11,6 +11,9 @@
     {{template "topbar" .}}
     <section class="content">
       {{template "alerts" .}}
+      {{if .Data.Update.Available}}
+      <a class="update-available-banner" href="/system/updates"><span>⟲</span><div><strong>A VPSDeck update is available</strong><small>{{.Data.Update.CurrentShort}} → {{.Data.Update.RemoteShort}} on {{.Data.Update.Branch}}. Open Updates to install it.</small></div><span class="update-available-go">Update →</span></a>
+      {{end}}
       <div class="page-heading">
         <div><p class="eyebrow">SERVER OVERVIEW</p><h1>Everything looks calm.</h1><p class="muted">Live health from this machine, collected {{.Data.CollectedAt.Format "15:04:05"}}.</p></div>
         <span class="status status-running"><i></i> Healthy</span>

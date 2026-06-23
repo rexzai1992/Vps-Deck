@@ -1,0 +1,40 @@
+{{define "advanced.html"}}
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{.Title}} · VPSDeck</title><link rel="stylesheet" href="/static/app.css"><script defer src="/static/app.js"></script></head>
+<body>
+  {{template "sidebar" .}}
+  <main class="main">
+    {{template "topbar" .}}
+    <section class="content">
+      {{template "alerts" .}}
+      <div class="page-heading"><div><p class="eyebrow">SYSTEM</p><h1>Advanced Mode</h1><p class="muted">Advanced Mode unlocks full-filesystem tools that can affect the entire server. It turns off automatically after inactivity.</p></div></div>
+
+      {{if not .Data.Enabled}}
+        <div class="panel"><div class="alert alert-warning" style="margin:0">Advanced Mode is disabled in the VPSDeck configuration.</div></div>
+      {{else if .Data.Active}}
+        <div class="panel advanced-card">
+          <div class="advanced-status"><span class="advanced-pill">⚠ ACTIVE</span><p>Advanced Mode is active until <strong>{{.Data.Until.Format "15:04:05 MST"}}</strong>.</p></div>
+          <div class="action-row">
+            <a class="button button-primary" href="/system/files">Open filesystem explorer</a>
+            <form method="post" action="/advanced-mode/disable"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><button class="button" type="submit">Exit Advanced Mode</button></form>
+          </div>
+        </div>
+      {{else}}
+        <div class="panel form-panel advanced-card">
+          <p class="muted">Re-enter your password to enable Advanced Mode for {{.Data.TimeoutMinutes}} minutes. The filesystem explorer (rooted at <code>{{.Data.Root}}</code>) and other system tools become available.</p>
+          <form method="post" action="/advanced-mode/enable">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <div class="stack" style="max-width:420px">
+              <label><span>Account password</span><input name="password" type="password" autocomplete="current-password" required></label>
+              {{if .Data.HasSecondPassword}}<label><span>Second password</span><input name="second_password" type="password" autocomplete="off" required></label>{{end}}
+            </div>
+            <div class="form-actions"><button class="button button-primary" type="submit">Enable Advanced Mode</button></div>
+          </form>
+        </div>
+      {{end}}
+    </section>
+  </main>
+</body>
+</html>
+{{end}}

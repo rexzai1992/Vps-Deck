@@ -225,6 +225,271 @@ func TestMonitorAPIRequiresJSONAuthentication(t *testing.T) {
 	}
 }
 
+func TestFileExplorerAPI(t *testing.T) {
+	handler, db, projectPath := testServer(t)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Jar: jar}
+
+	page, err := client.Get(server.URL + "/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page.Body.Close()
+	csrf := cookieValue(t, jar, server.URL, csrfCookie)
+	login, err := client.PostForm(server.URL+"/login", url.Values{
+		"csrf_token": {csrf},
+		"username":   {"admin"},
+		"password":   {"StrongPassword123"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	login.Body.Close()
+
+	csrf = cookieValue(t, jar, server.URL, csrfCookie)
+	register, err := client.PostForm(server.URL+"/projects", url.Values{
+		"csrf_token":  {csrf},
+		"name":        {"Files App"},
+		"type":        {"auto"},
+		"working_dir": {projectPath},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	register.Body.Close()
+
+	apiPost := func(path string, form url.Values) (int, string) {
+		t.Helper()
+		token := cookieValue(t, jar, server.URL, csrfCookie)
+		request, err := http.NewRequest(http.MethodPost, server.URL+path, strings.NewReader(form.Encode()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		request.Header.Set("X-CSRF-Token", token)
+		response, err := client.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(response.Body)
+		response.Body.Close()
+		return response.StatusCode, string(body)
+	}
+
+	// listing
+	list, err := client.Get(server.URL + "/api/projects/1/files?path=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	listBody, _ := io.ReadAll(list.Body)
+	list.Body.Close()
+	if list.StatusCode != http.StatusOK || !strings.Contains(string(listBody), "package.json") {
+		t.Fatalf("files listing failed: status=%d body=%s", list.StatusCode, listBody)
+	}
+
+	if status, body := apiPost("/api/projects/1/files/new-folder", url.Values{"path": {"."}, "name": {"sub"}}); status != http.StatusOK {
+		t.Fatalf("new-folder failed: status=%d body=%s", status, body)
+	}
+	if status, body := apiPost("/api/projects/1/files/new-file", url.Values{"path": {"sub"}, "name": {"hello.txt"}}); status != http.StatusOK || !strings.Contains(body, "sub/hello.txt") {
+		t.Fatalf("new-file failed: status=%d body=%s", status, body)
+	}
+	if status, body := apiPost("/api/projects/1/files/move", url.Values{"target": {"sub/hello.txt"}, "dest": {"."}}); status != http.StatusOK {
+		t.Fatalf("move failed: status=%d body=%s", status, body)
+	}
+	if status, body := apiPost("/api/projects/1/files/copy", url.Values{"target": {"hello.txt"}, "dest": {"sub"}}); status != http.StatusOK {
+		t.Fatalf("copy failed: status=%d body=%s", status, body)
+	}
+	if status, body := apiPost("/api/projects/1/files/rename", url.Values{"target": {"hello.txt"}, "name": {"renamed.txt"}}); status != http.StatusOK || !strings.Contains(body, "renamed.txt") {
+		t.Fatalf("rename failed: status=%d body=%s", status, body)
+	}
+	if status, body := apiPost("/api/projects/1/files/delete", url.Values{"target": {"sub"}, "recursive": {"true"}}); status != http.StatusOK {
+		t.Fatalf("recursive delete failed: status=%d body=%s", status, body)
+	}
+
+	if _, err := os.Stat(filepath.Join(projectPath, "renamed.txt")); err != nil {
+		t.Fatalf("renamed file missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(projectPath, "sub")); !os.IsNotExist(err) {
+		t.Fatal("sub folder should have been recursively deleted")
+	}
+
+	// folder ZIP download
+	zipResponse, err := client.Get(server.URL + "/projects/1/files/download-zip?path=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	zipBody, _ := io.ReadAll(zipResponse.Body)
+	zipResponse.Body.Close()
+	if zipResponse.StatusCode != http.StatusOK || zipResponse.Header.Get("Content-Type") != "application/zip" || len(zipBody) == 0 {
+		t.Fatalf("zip download failed: status=%d type=%s len=%d", zipResponse.StatusCode, zipResponse.Header.Get("Content-Type"), len(zipBody))
+	}
+
+	// unauthenticated API access is rejected
+	anon, err := http.Get(server.URL + "/api/projects/1/files")
+	if err != nil {
+		t.Fatal(err)
+	}
+	anon.Body.Close()
+	if anon.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for anonymous file API, got %d", anon.StatusCode)
+	}
+
+	entries, err := db.ListAudit(t.Context(), 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wanted := map[string]bool{"folder_create": false, "file_new": false, "file_move": false, "file_copy": false, "file_rename": false, "file_delete": false}
+	for _, entry := range entries {
+		if _, ok := wanted[entry.Action]; ok {
+			wanted[entry.Action] = true
+		}
+	}
+	for action, found := range wanted {
+		if !found {
+			t.Fatalf("missing audit entry for %s", action)
+		}
+	}
+}
+
+func TestGitHubIntegrationDisabledByDefault(t *testing.T) {
+	handler, _, _ := testServer(t)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Jar: jar}
+	page, err := client.Get(server.URL + "/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page.Body.Close()
+	csrf := cookieValue(t, jar, server.URL, csrfCookie)
+	login, err := client.PostForm(server.URL+"/login", url.Values{
+		"csrf_token": {csrf}, "username": {"admin"}, "password": {"StrongPassword123"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	login.Body.Close()
+
+	response, err := client.Get(server.URL + "/api/integrations/github/repos")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(response.Body)
+	response.Body.Close()
+	if response.StatusCode != http.StatusBadRequest || !strings.Contains(string(body), "disabled") {
+		t.Fatalf("expected disabled repos API, got status=%d body=%s", response.StatusCode, body)
+	}
+
+	// The Add Project page still offers the manual GitHub URL form.
+	newPage, err := client.Get(server.URL + "/projects/new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	newBody, _ := io.ReadAll(newPage.Body)
+	newPage.Body.Close()
+	if !strings.Contains(string(newBody), "GitHub repository URL") {
+		t.Fatalf("manual GitHub form missing from Add Project page")
+	}
+}
+
+func TestAdvancedModeGateAndFilesystemExplorer(t *testing.T) {
+	handler, _, _ := testServer(t)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Do not auto-follow redirects so we can assert the gate's 303.
+	client := &http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+
+	page, _ := client.Get(server.URL + "/login")
+	page.Body.Close()
+	csrf := cookieValue(t, jar, server.URL, csrfCookie)
+	login, err := client.PostForm(server.URL+"/login", url.Values{
+		"csrf_token": {csrf}, "username": {"admin"}, "password": {"StrongPassword123"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	login.Body.Close()
+
+	post := func(path string, form url.Values) (int, string) {
+		t.Helper()
+		token := cookieValue(t, jar, server.URL, csrfCookie)
+		request, _ := http.NewRequest(http.MethodPost, server.URL+path, strings.NewReader(form.Encode()))
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		request.Header.Set("X-CSRF-Token", token)
+		response, err := client.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(response.Body)
+		response.Body.Close()
+		return response.StatusCode, string(body)
+	}
+
+	// Before enabling: page redirects to /advanced, API returns 403.
+	pageResp, _ := client.Get(server.URL + "/system/files")
+	pageResp.Body.Close()
+	if pageResp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("system files page should redirect when not advanced, got %d", pageResp.StatusCode)
+	}
+	apiResp, _ := client.Get(server.URL + "/api/system/files")
+	apiResp.Body.Close()
+	if apiResp.StatusCode != http.StatusForbidden {
+		t.Fatalf("system files API should be 403 when not advanced, got %d", apiResp.StatusCode)
+	}
+
+	// Wrong password is refused.
+	if status, _ := post("/advanced-mode/enable", url.Values{"password": {"wrong"}}); status != http.StatusSeeOther {
+		t.Fatalf("enable should redirect, got %d", status)
+	}
+	stillBlocked, _ := client.Get(server.URL + "/api/system/files")
+	stillBlocked.Body.Close()
+	if stillBlocked.StatusCode != http.StatusForbidden {
+		t.Fatal("advanced mode should not be active after a wrong password")
+	}
+
+	// Correct password enables advanced mode.
+	if status, _ := post("/advanced-mode/enable", url.Values{"password": {"StrongPassword123"}}); status != http.StatusSeeOther {
+		t.Fatalf("enable with correct password should redirect, got %d", status)
+	}
+	listResp, _ := client.Get(server.URL + "/api/system/files?path=")
+	listBody, _ := io.ReadAll(listResp.Body)
+	listResp.Body.Close()
+	if listResp.StatusCode != http.StatusOK {
+		t.Fatalf("system files API should work once advanced, got %d: %s", listResp.StatusCode, listBody)
+	}
+
+	// Create a folder at the advanced root and confirm it lands in the temp root.
+	if status, body := post("/api/system/files/new-folder", url.Values{"path": {"."}, "name": {"adv-made"}}); status != http.StatusOK {
+		t.Fatalf("advanced new-folder failed: %d %s", status, body)
+	}
+
+	// Disabling removes access again.
+	if status, _ := post("/advanced-mode/disable", url.Values{}); status != http.StatusSeeOther {
+		t.Fatalf("disable should redirect, got %d", status)
+	}
+	gone, _ := client.Get(server.URL + "/api/system/files")
+	gone.Body.Close()
+	if gone.StatusCode != http.StatusForbidden {
+		t.Fatal("advanced mode should be inactive after disable")
+	}
+}
+
 func testServer(t *testing.T) (http.Handler, *database.DB, string) {
 	t.Helper()
 	base := t.TempDir()
@@ -238,7 +503,7 @@ func testServer(t *testing.T) (http.Handler, *database.DB, string) {
 	}
 
 	configPath := filepath.Join(base, "config.yaml")
-	configBody := "app:\n  host: 127.0.0.1\n  port: 8080\n  environment: test\nsecurity:\n  cookie_secure: false\n  session_lifetime_hours: 1\n  login_rate_limit_per_minute: 5\npaths:\n  database: " + filepath.Join(base, "vpsdeck.db") + "\n  data_dir: " + filepath.Join(base, "data") + "\n  log_dir: " + filepath.Join(base, "logs") + "\n  backup_dir: " + filepath.Join(base, "backups") + "\n  apps_dir: " + apps + "\n  simple_mode_roots:\n    - " + apps + "\nmonitoring:\n  refresh_seconds: 5\n  ports:\n    enabled: false\n  ollama:\n    enabled: false\n    base_url: http://127.0.0.1:11434\n    timeout_seconds: 1\ndocker:\n  enabled: false\n  discovery_enabled: false\n  command: docker\n  timeout_seconds: 1\n"
+	configBody := "app:\n  host: 127.0.0.1\n  port: 8080\n  environment: test\nsecurity:\n  cookie_secure: false\n  session_lifetime_hours: 1\n  login_rate_limit_per_minute: 5\n  advanced_mode:\n    enabled: true\n    root: " + base + "\n    timeout_minutes: 15\npaths:\n  database: " + filepath.Join(base, "vpsdeck.db") + "\n  data_dir: " + filepath.Join(base, "data") + "\n  log_dir: " + filepath.Join(base, "logs") + "\n  backup_dir: " + filepath.Join(base, "backups") + "\n  apps_dir: " + apps + "\n  simple_mode_roots:\n    - " + apps + "\nmonitoring:\n  refresh_seconds: 5\n  ports:\n    enabled: false\n  ollama:\n    enabled: false\n    base_url: http://127.0.0.1:11434\n    timeout_seconds: 1\ndocker:\n  enabled: false\n  discovery_enabled: false\n  command: docker\n  timeout_seconds: 1\n"
 	if err := os.WriteFile(configPath, []byte(configBody), 0o640); err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,7 @@
 package files
 
 import (
+	"archive/zip"
 	"errors"
 	"fmt"
 	"io"
@@ -249,9 +250,212 @@ func (s *Service) DownloadPath(project database.Project, relative string) (strin
 		return "", "", err
 	}
 	if info.IsDir() {
-		return "", "", errors.New("folder downloads as ZIP are not implemented yet")
+		return "", "", errors.New("use the folder ZIP download for folders")
 	}
 	return path, info.Name(), nil
+}
+
+// Move relocates a file or folder into destDirRelative. It refuses to move the
+// project root or to move a folder into itself or one of its descendants, and
+// auto-renames on a name collision so nothing is overwritten.
+func (s *Service) Move(project database.Project, sourceRelative, destDirRelative string) (string, error) {
+	sourcePath, sourceClean, err := resolveExisting(project.WorkingDir, sourceRelative)
+	if err != nil {
+		return "", err
+	}
+	if sourceClean == "." {
+		return "", errors.New("the project root cannot be moved")
+	}
+	destPath, err := resolveDir(project.WorkingDir, destDirRelative)
+	if err != nil {
+		return "", err
+	}
+	if destPath == sourcePath || isDescendant(sourcePath, destPath) {
+		return "", errors.New("a folder cannot be moved into itself")
+	}
+	if filepath.Dir(sourcePath) == destPath {
+		return "", errors.New("the item is already in this folder")
+	}
+	target := uniqueTarget(destPath, filepath.Base(sourcePath))
+	if !within(project.WorkingDir, target) {
+		return "", errors.New("destination is outside the project")
+	}
+	if err := os.Rename(sourcePath, target); err != nil {
+		return "", fmt.Errorf("move item: %w", err)
+	}
+	return relativeTo(project.WorkingDir, target)
+}
+
+// Copy duplicates a file or folder (recursively) into destDirRelative, with the
+// same containment guards as Move and auto-rename on collision.
+func (s *Service) Copy(project database.Project, sourceRelative, destDirRelative string) (string, error) {
+	sourcePath, sourceClean, err := resolveExisting(project.WorkingDir, sourceRelative)
+	if err != nil {
+		return "", err
+	}
+	if sourceClean == "." {
+		return "", errors.New("the project root cannot be copied")
+	}
+	destPath, err := resolveDir(project.WorkingDir, destDirRelative)
+	if err != nil {
+		return "", err
+	}
+	if destPath == sourcePath || isDescendant(sourcePath, destPath) {
+		return "", errors.New("a folder cannot be copied into itself")
+	}
+	target := uniqueTarget(destPath, filepath.Base(sourcePath))
+	if !within(project.WorkingDir, target) {
+		return "", errors.New("destination is outside the project")
+	}
+	if err := copyTree(sourcePath, target); err != nil {
+		_ = os.RemoveAll(target)
+		return "", fmt.Errorf("copy item: %w", err)
+	}
+	return relativeTo(project.WorkingDir, target)
+}
+
+// Rename changes the name of a file or folder in place. newName must be a bare
+// name without any path separators.
+func (s *Service) Rename(project database.Project, sourceRelative, newName string) (string, error) {
+	newName = strings.TrimSpace(newName)
+	if newName == "" || filepath.Base(newName) != newName || newName == "." || newName == ".." {
+		return "", errors.New("name must not contain a path")
+	}
+	sourcePath, sourceClean, err := resolveExisting(project.WorkingDir, sourceRelative)
+	if err != nil {
+		return "", err
+	}
+	if sourceClean == "." {
+		return "", errors.New("the project root cannot be renamed")
+	}
+	target := filepath.Join(filepath.Dir(sourcePath), newName)
+	if !within(project.WorkingDir, target) {
+		return "", errors.New("destination is outside the project")
+	}
+	if target == sourcePath {
+		return relativeTo(project.WorkingDir, target)
+	}
+	if _, err := os.Lstat(target); err == nil {
+		return "", errors.New("an item with this name already exists")
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return "", err
+	}
+	if err := os.Rename(sourcePath, target); err != nil {
+		return "", fmt.Errorf("rename item: %w", err)
+	}
+	return relativeTo(project.WorkingDir, target)
+}
+
+// DeleteRecursive removes a file or a folder and all of its contents. It is the
+// confirmed, audited counterpart to Delete, which only removes empty folders.
+func (s *Service) DeleteRecursive(project database.Project, relative string) error {
+	path, cleanRelative, err := resolveExisting(project.WorkingDir, relative)
+	if err != nil {
+		return err
+	}
+	if cleanRelative == "." {
+		return errors.New("the project root cannot be deleted")
+	}
+	if err := os.RemoveAll(path); err != nil {
+		return fmt.Errorf("delete item: %w", err)
+	}
+	return nil
+}
+
+// NewFile creates an empty file inside parentRelative.
+func (s *Service) NewFile(project database.Project, parentRelative, name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || filepath.Base(name) != name || name == "." || name == ".." {
+		return "", errors.New("file name must not contain a path")
+	}
+	parent, _, err := resolveExisting(project.WorkingDir, parentRelative)
+	if err != nil {
+		return "", err
+	}
+	parentInfo, err := os.Stat(parent)
+	if err != nil || !parentInfo.IsDir() {
+		return "", errors.New("the destination is not a folder")
+	}
+	target := filepath.Join(parent, name)
+	if !within(project.WorkingDir, target) {
+		return "", errors.New("file path is outside the project")
+	}
+	file, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o640)
+	if errors.Is(err, fs.ErrExist) {
+		return "", errors.New("a file or folder with this name already exists")
+	}
+	if err != nil {
+		return "", fmt.Errorf("create file: %w", err)
+	}
+	_ = file.Close()
+	return relativeTo(project.WorkingDir, target)
+}
+
+// ZipFolder streams a folder and its regular-file contents as a ZIP archive and
+// returns the suggested download file name.
+func (s *Service) ZipFolder(project database.Project, relative string, w io.Writer) (string, error) {
+	path, cleanRelative, err := resolveExisting(project.WorkingDir, relative)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", errors.New("only folders can be downloaded as a ZIP")
+	}
+	downloadName := filepath.Base(path)
+	if cleanRelative == "." {
+		downloadName = project.Name
+	}
+	if strings.TrimSpace(downloadName) == "" {
+		downloadName = "folder"
+	}
+
+	archive := zip.NewWriter(w)
+	walkErr := filepath.WalkDir(path, func(current string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		relInZip, err := filepath.Rel(path, current)
+		if err != nil {
+			return err
+		}
+		if relInZip == "." {
+			return nil
+		}
+		name := filepath.ToSlash(relInZip)
+		if entry.IsDir() {
+			_, err := archive.Create(name + "/")
+			return err
+		}
+		if !entry.Type().IsRegular() {
+			return nil
+		}
+		writer, err := archive.Create(name)
+		if err != nil {
+			return err
+		}
+		source, err := os.Open(current)
+		if err != nil {
+			return err
+		}
+		defer source.Close()
+		_, err = io.Copy(writer, source)
+		return err
+	})
+	if walkErr != nil {
+		_ = archive.Close()
+		return "", fmt.Errorf("build ZIP archive: %w", walkErr)
+	}
+	if err := archive.Close(); err != nil {
+		return "", fmt.Errorf("finish ZIP archive: %w", err)
+	}
+	return downloadName + ".zip", nil
 }
 
 func (s *Service) backup(project database.Project, relative, source string) error {
@@ -341,6 +545,114 @@ func cleanRelativePath(relative string) (string, error) {
 		return "", errors.New("path traversal is not allowed")
 	}
 	return clean, nil
+}
+
+func resolveDir(root, relative string) (string, error) {
+	path, _, err := resolveExisting(root, relative)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", errors.New("the destination is not a folder")
+	}
+	return path, nil
+}
+
+// relativeTo returns the slash-form path of target relative to the canonical
+// project root. target's parent is already canonical, so target need not exist.
+func relativeTo(root, target string) (string, error) {
+	if canonicalRoot, err := filepath.EvalSymlinks(root); err == nil {
+		root = canonicalRoot
+	}
+	relative, err := filepath.Rel(root, target)
+	if err != nil {
+		return "", err
+	}
+	return filepath.ToSlash(relative), nil
+}
+
+// isDescendant reports whether child sits inside parent (and is not parent).
+func isDescendant(parent, child string) bool {
+	relative, err := filepath.Rel(parent, child)
+	if err != nil {
+		return false
+	}
+	return relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
+// uniqueTarget returns dir/name, or dir/name (2), dir/name (3)… if that path is
+// already taken, so move/copy never overwrites an existing item.
+func uniqueTarget(dir, name string) string {
+	candidate := filepath.Join(dir, name)
+	if _, err := os.Lstat(candidate); errors.Is(err, fs.ErrNotExist) {
+		return candidate
+	}
+	ext := filepath.Ext(name)
+	stem := strings.TrimSuffix(name, ext)
+	if stem == "" {
+		stem = name
+		ext = ""
+	}
+	for index := 2; index < 100000; index++ {
+		candidate = filepath.Join(dir, fmt.Sprintf("%s (%d)%s", stem, index, ext))
+		if _, err := os.Lstat(candidate); errors.Is(err, fs.ErrNotExist) {
+			return candidate
+		}
+	}
+	return filepath.Join(dir, stem+" (copy)"+ext)
+}
+
+// copyTree recursively copies a regular file or a directory. Symlinks and other
+// special files are skipped so a copy can never escape the project root.
+func copyTree(source, target string) error {
+	info, err := os.Lstat(source)
+	if err != nil {
+		return err
+	}
+	switch {
+	case info.IsDir():
+		if err := os.MkdirAll(target, 0o750); err != nil {
+			return err
+		}
+		entries, err := os.ReadDir(source)
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			if entry.Type()&os.ModeSymlink != 0 {
+				continue
+			}
+			if err := copyTree(filepath.Join(source, entry.Name()), filepath.Join(target, entry.Name())); err != nil {
+				return err
+			}
+		}
+		return nil
+	case info.Mode().IsRegular():
+		return copyFile(source, target, info.Mode().Perm())
+	default:
+		return nil
+	}
+}
+
+func copyFile(source, target string, mode fs.FileMode) error {
+	input, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+	output, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if err != nil {
+		return err
+	}
+	defer output.Close()
+	if _, err := io.Copy(output, input); err != nil {
+		return err
+	}
+	return output.Sync()
 }
 
 func within(root, path string) bool {

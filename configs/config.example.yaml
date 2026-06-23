@@ -9,6 +9,13 @@ security:
   cookie_secure: true
   session_lifetime_hours: 12
   login_rate_limit_per_minute: 5
+  # Advanced Mode unlocks the full-filesystem explorer after password
+  # re-confirmation. It auto-expires after timeout_minutes of the session.
+  advanced_mode:
+    enabled: true
+    root: "/"
+    timeout_minutes: 15
+    second_password: ""   # optional extra password required to enter Advanced Mode
 
 paths:
   database: /var/lib/vpsdeck/vpsdeck.db
@@ -26,6 +33,17 @@ deployments:
   git_command: git
   timeout_seconds: 300
 
+# Self-update of the VPSDeck panel itself. Applying an update requires the
+# root-owned vpsdeck-update.path/.service units installed by scripts/install.sh.
+updates:
+  enabled: true
+  source_dir: /opt/vpsdeck/src
+  branch: main
+  git_command: git
+  check_interval_minutes: 30
+  request_path: /var/lib/vpsdeck/update.request
+  status_path: /var/lib/vpsdeck/update.status
+
 monitoring:
   refresh_seconds: 5
 
@@ -42,3 +60,16 @@ docker:
   discovery_enabled: true
   command: docker
   timeout_seconds: 10
+
+# GitHub OAuth App integration. Prefer supplying the secrets via environment
+# variables (VPSDECK_GITHUB_CLIENT_ID / _CLIENT_SECRET / _TOKEN_KEY) instead of
+# committing them here. token_key is a base64-encoded 32-byte AES key used to
+# encrypt stored access tokens at rest.
+integrations:
+  github:
+    enabled: false
+    client_id: ""
+    client_secret: ""
+    callback_url: https://panel.example.com/integrations/github/callback
+    scopes: repo
+    token_key: ""
