@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/url"
@@ -14,12 +15,39 @@ import (
 )
 
 type Config struct {
-	App         AppConfig        `yaml:"app"`
-	Security    SecurityConfig   `yaml:"security"`
-	Paths       PathsConfig      `yaml:"paths"`
-	Deployments DeploymentConfig `yaml:"deployments"`
-	Monitoring  MonitoringConfig `yaml:"monitoring"`
-	Docker      DockerConfig     `yaml:"docker"`
+	App          AppConfig          `yaml:"app"`
+	Security     SecurityConfig     `yaml:"security"`
+	Paths        PathsConfig        `yaml:"paths"`
+	Deployments  DeploymentConfig   `yaml:"deployments"`
+	Monitoring   MonitoringConfig   `yaml:"monitoring"`
+	Docker       DockerConfig       `yaml:"docker"`
+	Updates      UpdateConfig       `yaml:"updates"`
+	Integrations IntegrationsConfig `yaml:"integrations"`
+}
+
+type IntegrationsConfig struct {
+	GitHub GitHubConfig `yaml:"github"`
+}
+
+type GitHubConfig struct {
+	Enabled      bool   `yaml:"enabled"`
+	ClientID     string `yaml:"client_id"`
+	ClientSecret string `yaml:"client_secret"`
+	CallbackURL  string `yaml:"callback_url"`
+	Scopes       string `yaml:"scopes"`
+	TokenKey     string `yaml:"token_key"`
+}
+
+// DecodedKey returns the 32-byte AES key used to encrypt stored OAuth tokens.
+func (g GitHubConfig) DecodedKey() ([]byte, error) {
+	key, err := base64.StdEncoding.DecodeString(strings.TrimSpace(g.TokenKey))
+	if err != nil {
+		return nil, errors.New("integrations.github.token_key must be base64-encoded")
+	}
+	if len(key) != 32 {
+		return nil, errors.New("integrations.github.token_key must decode to exactly 32 bytes")
+	}
+	return key, nil
 }
 
 type AppConfig struct {
@@ -31,10 +59,18 @@ type AppConfig struct {
 }
 
 type SecurityConfig struct {
-	CookieSecure            bool          `yaml:"cookie_secure"`
-	SessionLifetime         time.Duration `yaml:"-"`
-	SessionLifetimeHours    int           `yaml:"session_lifetime_hours"`
-	LoginRateLimitPerMinute int           `yaml:"login_rate_limit_per_minute"`
+	CookieSecure            bool               `yaml:"cookie_secure"`
+	SessionLifetime         time.Duration      `yaml:"-"`
+	SessionLifetimeHours    int                `yaml:"session_lifetime_hours"`
+	LoginRateLimitPerMinute int                `yaml:"login_rate_limit_per_minute"`
+	AdvancedMode            AdvancedModeConfig `yaml:"advanced_mode"`
+}
+
+type AdvancedModeConfig struct {
+	Enabled        bool   `yaml:"enabled"`
+	Root           string `yaml:"root"`
+	TimeoutMinutes int    `yaml:"timeout_minutes"`
+	SecondPassword string `yaml:"second_password"`
 }
 
 type PathsConfig struct {
@@ -75,6 +111,16 @@ type DockerConfig struct {
 	TimeoutSeconds   int    `yaml:"timeout_seconds"`
 }
 
+type UpdateConfig struct {
+	Enabled              bool   `yaml:"enabled"`
+	SourceDir            string `yaml:"source_dir"`
+	Branch               string `yaml:"branch"`
+	GitCommand           string `yaml:"git_command"`
+	CheckIntervalMinutes int    `yaml:"check_interval_minutes"`
+	RequestPath          string `yaml:"request_path"`
+	StatusPath           string `yaml:"status_path"`
+}
+
 func Default() Config {
 	return Config{
 		App: AppConfig{
@@ -88,6 +134,11 @@ func Default() Config {
 			CookieSecure:            false,
 			SessionLifetimeHours:    12,
 			LoginRateLimitPerMinute: 5,
+			AdvancedMode: AdvancedModeConfig{
+				Enabled:        true,
+				Root:           "/",
+				TimeoutMinutes: 15,
+			},
 		},
 		Paths: PathsConfig{
 			Database:        "./data/vpsdeck.db",
@@ -118,6 +169,19 @@ func Default() Config {
 			DiscoveryEnabled: true,
 			Command:          "docker",
 			TimeoutSeconds:   10,
+		},
+		Updates: UpdateConfig{
+			Enabled:              true,
+			SourceDir:            ".",
+			Branch:               "main",
+			GitCommand:           "git",
+			CheckIntervalMinutes: 30,
+		},
+		Integrations: IntegrationsConfig{
+			GitHub: GitHubConfig{
+				Enabled: false,
+				Scopes:  "repo",
+			},
 		},
 	}
 }
@@ -162,6 +226,20 @@ func (c *Config) normalize() error {
 	c.Security.SessionLifetime = time.Duration(c.Security.SessionLifetimeHours) * time.Hour
 	if c.Security.LoginRateLimitPerMinute < 1 {
 		c.Security.LoginRateLimitPerMinute = 5
+	}
+	if strings.TrimSpace(c.Security.AdvancedMode.Root) == "" {
+		c.Security.AdvancedMode.Root = "/"
+	}
+	advancedRoot, advancedErr := absolutePath(c.Security.AdvancedMode.Root)
+	if advancedErr != nil {
+		return fmt.Errorf("advanced mode root: %w", advancedErr)
+	}
+	c.Security.AdvancedMode.Root = advancedRoot
+	if c.Security.AdvancedMode.TimeoutMinutes < 1 {
+		c.Security.AdvancedMode.TimeoutMinutes = 15
+	}
+	if c.Security.AdvancedMode.TimeoutMinutes > 240 {
+		c.Security.AdvancedMode.TimeoutMinutes = 240
 	}
 	c.Deployments.GitCommand = strings.TrimSpace(c.Deployments.GitCommand)
 	if c.Deployments.Enabled && c.Deployments.GitCommand == "" {
@@ -229,6 +307,77 @@ func (c *Config) normalize() error {
 			return fmt.Errorf("create directory %s: %w", dir, err)
 		}
 	}
+
+	if err := c.normalizeUpdates(); err != nil {
+		return err
+	}
+	if err := c.normalizeGitHub(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *Config) normalizeGitHub() error {
+	github := &c.Integrations.GitHub
+	github.ClientID = strings.TrimSpace(github.ClientID)
+	github.ClientSecret = strings.TrimSpace(github.ClientSecret)
+	github.CallbackURL = strings.TrimSpace(github.CallbackURL)
+	github.TokenKey = strings.TrimSpace(github.TokenKey)
+	if strings.TrimSpace(github.Scopes) == "" {
+		github.Scopes = "repo"
+	}
+	if !github.Enabled {
+		return nil
+	}
+	if github.ClientID == "" || github.ClientSecret == "" {
+		return errors.New("integrations.github requires client_id and client_secret when enabled")
+	}
+	parsed, err := url.Parse(github.CallbackURL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return errors.New("integrations.github.callback_url must be a valid http or https URL")
+	}
+	if _, err := github.DecodedKey(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *Config) normalizeUpdates() error {
+	c.Updates.GitCommand = strings.TrimSpace(c.Updates.GitCommand)
+	if c.Updates.GitCommand == "" {
+		c.Updates.GitCommand = "git"
+	}
+	if strings.TrimSpace(c.Updates.Branch) == "" {
+		c.Updates.Branch = "main"
+	}
+	if c.Updates.CheckIntervalMinutes < 1 {
+		c.Updates.CheckIntervalMinutes = 30
+	}
+	if c.Updates.CheckIntervalMinutes > 1440 {
+		c.Updates.CheckIntervalMinutes = 1440
+	}
+	sourceDir := strings.TrimSpace(c.Updates.SourceDir)
+	if sourceDir == "" {
+		sourceDir = "."
+	}
+	absSource, err := absolutePath(sourceDir)
+	if err != nil {
+		return fmt.Errorf("updates source directory: %w", err)
+	}
+	c.Updates.SourceDir = absSource
+
+	if strings.TrimSpace(c.Updates.RequestPath) == "" {
+		c.Updates.RequestPath = filepath.Join(c.Paths.DataDir, "update.request")
+	}
+	if c.Updates.RequestPath, err = absolutePath(c.Updates.RequestPath); err != nil {
+		return fmt.Errorf("updates request path: %w", err)
+	}
+	if strings.TrimSpace(c.Updates.StatusPath) == "" {
+		c.Updates.StatusPath = filepath.Join(c.Paths.DataDir, "update.status")
+	}
+	if c.Updates.StatusPath, err = absolutePath(c.Updates.StatusPath); err != nil {
+		return fmt.Errorf("updates status path: %w", err)
+	}
 	return nil
 }
 
@@ -259,6 +408,21 @@ func applyEnvironment(cfg *Config) {
 	}
 	if value := os.Getenv("VPSDECK_OLLAMA_BASE_URL"); value != "" {
 		cfg.Monitoring.Ollama.BaseURL = value
+	}
+	if value := os.Getenv("VPSDECK_GITHUB_CLIENT_ID"); value != "" {
+		cfg.Integrations.GitHub.ClientID = value
+	}
+	if value := os.Getenv("VPSDECK_GITHUB_CLIENT_SECRET"); value != "" {
+		cfg.Integrations.GitHub.ClientSecret = value
+	}
+	if value := os.Getenv("VPSDECK_GITHUB_CALLBACK_URL"); value != "" {
+		cfg.Integrations.GitHub.CallbackURL = value
+	}
+	if value := os.Getenv("VPSDECK_GITHUB_TOKEN_KEY"); value != "" {
+		cfg.Integrations.GitHub.TokenKey = value
+	}
+	if os.Getenv("VPSDECK_GITHUB_ENABLED") == "true" {
+		cfg.Integrations.GitHub.Enabled = true
 	}
 }
 

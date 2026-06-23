@@ -44,9 +44,24 @@ type ProjectSource struct {
 	Branch         string
 	DeployMode     string
 	LastCommit     string
+	RequiresAuth   bool
+	Owner          string
+	Repo           string
 	LastDeployedAt *time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+}
+
+type GitHubAccount struct {
+	UserID            int64
+	Login             string
+	GitHubUserID      int64
+	AvatarURL         string
+	Scope             string
+	AccessTokenCipher []byte
+	TokenNonce        []byte
+	ConnectedAt       time.Time
+	UpdatedAt         time.Time
 }
 
 type Deployment struct {
@@ -205,6 +220,27 @@ func (db *DB) Migrate(ctx context.Context) error {
 		CREATE INDEX idx_deployments_project_created
 			ON deployments(project_id, created_at DESC);
 		`,
+		`
+		CREATE TABLE github_accounts (
+			user_id INTEGER PRIMARY KEY,
+			github_login TEXT NOT NULL,
+			github_user_id INTEGER NOT NULL DEFAULT 0,
+			avatar_url TEXT NOT NULL DEFAULT '',
+			scope TEXT NOT NULL DEFAULT '',
+			access_token_cipher BLOB NOT NULL,
+			token_nonce BLOB NOT NULL,
+			connected_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+		);
+
+		ALTER TABLE project_sources ADD COLUMN requires_auth INTEGER NOT NULL DEFAULT 0;
+		ALTER TABLE project_sources ADD COLUMN owner TEXT NOT NULL DEFAULT '';
+		ALTER TABLE project_sources ADD COLUMN repo TEXT NOT NULL DEFAULT '';
+		`,
+		`
+		ALTER TABLE sessions ADD COLUMN advanced_until DATETIME;
+		`,
 	}
 
 	for i, statement := range migrations {
@@ -291,6 +327,33 @@ func (db *DB) DeleteSession(ctx context.Context, id string) error {
 func (db *DB) DeleteExpiredSessions(ctx context.Context, now time.Time) error {
 	_, err := db.ExecContext(ctx, "DELETE FROM sessions WHERE expires_at <= ?", now.UTC())
 	return err
+}
+
+func (db *DB) SetSessionAdvanced(ctx context.Context, sessionID string, until time.Time) error {
+	_, err := db.ExecContext(ctx, "UPDATE sessions SET advanced_until = ? WHERE id = ?", until.UTC(), sessionID)
+	return err
+}
+
+func (db *DB) ClearSessionAdvanced(ctx context.Context, sessionID string) error {
+	_, err := db.ExecContext(ctx, "UPDATE sessions SET advanced_until = NULL WHERE id = ?", sessionID)
+	return err
+}
+
+// SessionAdvancedUntil returns the advanced-mode expiry for a session when it is
+// still in the future, alongside whether advanced mode is currently active.
+func (db *DB) SessionAdvancedUntil(ctx context.Context, sessionID string, now time.Time) (time.Time, bool, error) {
+	var until sql.NullTime
+	err := db.QueryRowContext(ctx,
+		"SELECT advanced_until FROM sessions WHERE id = ? AND expires_at > ?",
+		sessionID, now.UTC(),
+	).Scan(&until)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	if !until.Valid || !until.Time.After(now.UTC()) {
+		return time.Time{}, false, nil
+	}
+	return until.Time, true, nil
 }
 
 func (db *DB) ListProjects(ctx context.Context) ([]Project, error) {
@@ -382,10 +445,12 @@ func (db *DB) UpdateProjectRuntime(ctx context.Context, id int64, status string,
 func (db *DB) CreateProjectSource(ctx context.Context, source ProjectSource) error {
 	_, err := db.ExecContext(ctx, `
 		INSERT INTO project_sources(
-			project_id, provider, repository_url, branch, deploy_mode, last_commit, last_deployed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?)
+			project_id, provider, repository_url, branch, deploy_mode, last_commit,
+			requires_auth, owner, repo, last_deployed_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, source.ProjectID, source.Provider, source.RepositoryURL, source.Branch,
-		source.DeployMode, source.LastCommit, source.LastDeployedAt)
+		source.DeployMode, source.LastCommit, source.RequiresAuth, source.Owner, source.Repo,
+		source.LastDeployedAt)
 	return err
 }
 
@@ -394,18 +459,71 @@ func (db *DB) ProjectSourceByProjectID(ctx context.Context, projectID int64) (Pr
 	var deployedAt sql.NullTime
 	err := db.QueryRowContext(ctx, `
 		SELECT project_id, provider, repository_url, branch, deploy_mode, last_commit,
-		       last_deployed_at, created_at, updated_at
+		       requires_auth, owner, repo, last_deployed_at, created_at, updated_at
 		FROM project_sources
 		WHERE project_id = ?
 	`, projectID).Scan(
 		&source.ProjectID, &source.Provider, &source.RepositoryURL, &source.Branch,
-		&source.DeployMode, &source.LastCommit, &deployedAt, &source.CreatedAt, &source.UpdatedAt,
+		&source.DeployMode, &source.LastCommit, &source.RequiresAuth, &source.Owner, &source.Repo,
+		&deployedAt, &source.CreatedAt, &source.UpdatedAt,
 	)
 	if deployedAt.Valid {
 		value := deployedAt.Time
 		source.LastDeployedAt = &value
 	}
 	return source, err
+}
+
+func (db *DB) UpsertGitHubAccount(ctx context.Context, account GitHubAccount) error {
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO github_accounts(
+			user_id, github_login, github_user_id, avatar_url, scope,
+			access_token_cipher, token_nonce, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(user_id) DO UPDATE SET
+			github_login = excluded.github_login,
+			github_user_id = excluded.github_user_id,
+			avatar_url = excluded.avatar_url,
+			scope = excluded.scope,
+			access_token_cipher = excluded.access_token_cipher,
+			token_nonce = excluded.token_nonce,
+			updated_at = CURRENT_TIMESTAMP
+	`, account.UserID, account.Login, account.GitHubUserID, account.AvatarURL, account.Scope,
+		account.AccessTokenCipher, account.TokenNonce)
+	return err
+}
+
+func (db *DB) GitHubAccountByUser(ctx context.Context, userID int64) (GitHubAccount, error) {
+	var account GitHubAccount
+	err := db.QueryRowContext(ctx, `
+		SELECT user_id, github_login, github_user_id, avatar_url, scope,
+		       access_token_cipher, token_nonce, connected_at, updated_at
+		FROM github_accounts WHERE user_id = ?
+	`, userID).Scan(
+		&account.UserID, &account.Login, &account.GitHubUserID, &account.AvatarURL, &account.Scope,
+		&account.AccessTokenCipher, &account.TokenNonce, &account.ConnectedAt, &account.UpdatedAt,
+	)
+	return account, err
+}
+
+// GitHubAccountAny returns the most recently connected GitHub account, used by
+// deployments to authenticate private clones/fetches in the single-admin MVP.
+func (db *DB) GitHubAccountAny(ctx context.Context) (GitHubAccount, error) {
+	var account GitHubAccount
+	err := db.QueryRowContext(ctx, `
+		SELECT user_id, github_login, github_user_id, avatar_url, scope,
+		       access_token_cipher, token_nonce, connected_at, updated_at
+		FROM github_accounts ORDER BY updated_at DESC LIMIT 1
+	`).Scan(
+		&account.UserID, &account.Login, &account.GitHubUserID, &account.AvatarURL, &account.Scope,
+		&account.AccessTokenCipher, &account.TokenNonce, &account.ConnectedAt, &account.UpdatedAt,
+	)
+	return account, err
+}
+
+func (db *DB) DeleteGitHubAccount(ctx context.Context, userID int64) error {
+	_, err := db.ExecContext(ctx, "DELETE FROM github_accounts WHERE user_id = ?", userID)
+	return err
 }
 
 func (db *DB) UpdateProjectSourceDeployment(ctx context.Context, projectID int64, commit string, deployedAt time.Time) error {

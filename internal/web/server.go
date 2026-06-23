@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -23,8 +24,10 @@ import (
 	"github.com/vpsdeck/vpsdeck/internal/deployments"
 	dockerdiscovery "github.com/vpsdeck/vpsdeck/internal/docker"
 	projectfiles "github.com/vpsdeck/vpsdeck/internal/files"
+	githubintegration "github.com/vpsdeck/vpsdeck/internal/github"
 	"github.com/vpsdeck/vpsdeck/internal/monitoring"
 	"github.com/vpsdeck/vpsdeck/internal/projects"
+	"github.com/vpsdeck/vpsdeck/internal/selfupdate"
 	webassets "github.com/vpsdeck/vpsdeck/web"
 )
 
@@ -45,19 +48,23 @@ type Server struct {
 	ports     *monitoring.PortService
 	ollama    *monitoring.OllamaService
 	docker    *dockerdiscovery.Discovery
+	update    *selfupdate.Service
+	github    *githubintegration.Service
 	limiter   *auth.RateLimiter
 	logger    *slog.Logger
 	templates *template.Template
 }
 
 type PageData struct {
-	Title     string
-	Active    string
-	User      database.User
-	CSRFToken string
-	Success   string
-	Error     string
-	Data      any
+	Title           string
+	Active          string
+	User            database.User
+	CSRFToken       string
+	Success         string
+	Error           string
+	Advanced        bool
+	AdvancedEnabled bool
+	Data            any
 }
 
 type FilePageData struct {
@@ -69,14 +76,15 @@ type FilePageData struct {
 }
 
 type Breadcrumb struct {
-	Name string
-	Path string
+	Name string `json:"name"`
+	Path string `json:"path"`
 }
 
 type FileEditData struct {
 	Project database.Project
 	Path    string
 	Content string
+	Base    string
 }
 
 type EnvEntry struct {
@@ -97,6 +105,7 @@ type DashboardPageData struct {
 	Ports          monitoring.PortSnapshot
 	Ollama         monitoring.OllamaSnapshot
 	Docker         dockerdiscovery.Snapshot
+	Update         selfupdate.Snapshot
 	RefreshSeconds int
 }
 
@@ -117,6 +126,10 @@ type NewProjectPageData struct {
 	Roots              []string
 	AppsDir            string
 	DeploymentsEnabled bool
+	GitHubEnabled      bool
+	GitHubConnected    bool
+	GitHubLogin        string
+	GitHubAvatar       string
 }
 
 type MonitorPageData struct {
@@ -164,11 +177,21 @@ func New(cfg config.Config, db *database.DB, authService *auth.Service, logger *
 		return nil, fmt.Errorf("parse templates: %w", err)
 	}
 
+	var githubKey []byte
+	if cfg.Integrations.GitHub.Enabled {
+		githubKey, err = cfg.Integrations.GitHub.DecodedKey()
+		if err != nil {
+			return nil, err
+		}
+	}
+	githubService := githubintegration.NewService(db, cfg.Integrations.GitHub, githubKey)
+
 	server := &Server{
 		cfg:       cfg,
 		db:        db,
 		auth:      authService,
 		projects:  projectService,
+		github:    githubService,
 		files:     projectfiles.NewService(cfg.Paths.BackupDir),
 		dashboard: dashboard.NewService(db),
 		deploy: deployments.NewService(
@@ -198,10 +221,24 @@ func New(cfg config.Config, db *database.DB, authService *auth.Service, logger *
 			time.Duration(cfg.Docker.TimeoutSeconds)*time.Second,
 			time.Duration(cfg.Monitoring.RefreshSeconds)*time.Second,
 		),
+		update: selfupdate.NewService(
+			cfg.Updates.Enabled,
+			cfg.Updates.SourceDir,
+			cfg.Updates.Branch,
+			cfg.Updates.GitCommand,
+			cfg.Updates.RequestPath,
+			cfg.Updates.StatusPath,
+			30*time.Second,
+			time.Duration(cfg.Updates.CheckIntervalMinutes)*time.Minute,
+		),
 		limiter:   auth.NewRateLimiter(cfg.Security.LoginRateLimitPerMinute, time.Minute),
 		logger:    logger,
 		templates: templates,
 	}
+
+	server.deploy.SetTokenProvider(func(ctx context.Context) (string, error) {
+		return githubService.TokenAny(ctx)
+	})
 
 	router := gin.New()
 	router.Use(gin.Recovery(), server.requestLogger(), server.securityHeaders())
@@ -238,17 +275,51 @@ func New(cfg config.Config, db *database.DB, authService *auth.Service, logger *
 	protected.GET("/projects/:id/files/edit", server.editFilePage)
 	protected.POST("/projects/:id/files/edit", server.limitBody(4<<20), server.csrfRequired(), server.saveFile)
 	protected.GET("/projects/:id/files/download", server.downloadFile)
+	protected.GET("/projects/:id/files/download-zip", server.downloadFolderZip)
 	protected.GET("/projects/:id/env", server.envPage)
 	protected.POST("/projects/:id/env", server.limitBody(4<<20), server.csrfRequired(), server.saveEnv)
 	protected.GET("/audit", server.auditPage)
 	protected.GET("/network/ports", server.portsPage)
 	protected.GET("/ollama", server.ollamaPage)
+	protected.GET("/system/updates", server.updatesPage)
+	protected.POST("/system/update/check", server.limitBody(1<<20), server.csrfRequired(), server.checkUpdate)
+	protected.POST("/system/update/apply", server.limitBody(1<<20), server.csrfRequired(), server.applyUpdate)
+	protected.GET("/integrations/github/connect", server.githubConnect)
+	protected.GET("/integrations/github/callback", server.githubCallback)
+	protected.POST("/integrations/github/disconnect", server.limitBody(1<<20), server.csrfRequired(), server.githubDisconnect)
+	protected.GET("/advanced", server.advancedPage)
+	protected.POST("/advanced-mode/enable", server.limitBody(1<<20), server.csrfRequired(), server.enableAdvanced)
+	protected.POST("/advanced-mode/disable", server.limitBody(1<<20), server.csrfRequired(), server.disableAdvanced)
+	protected.GET("/system/files", server.requireAdvancedPage(), server.advancedFilesPage)
+	protected.GET("/system/files/edit", server.requireAdvancedPage(), server.advancedEditPage)
+	protected.POST("/system/files/edit", server.requireAdvancedPage(), server.limitBody(4<<20), server.csrfRequired(), server.advancedSaveFile)
+	protected.GET("/system/files/download", server.requireAdvancedPage(), server.advancedDownloadFile)
+	protected.GET("/system/files/download-zip", server.requireAdvancedPage(), server.advancedDownloadZip)
 
 	api := router.Group("/api")
 	api.Use(server.requireAPIAuth())
 	api.GET("/folders", server.folderBrowserAPI)
 	api.GET("/monitors/ports", server.portsAPI)
 	api.GET("/monitors/ollama", server.ollamaAPI)
+	api.GET("/system/update", server.updateStatusAPI)
+	api.GET("/integrations/github/repos", server.githubReposAPI)
+	api.GET("/integrations/github/branches", server.githubBranchesAPI)
+	api.GET("/system/files", server.requireAdvancedAPI(), server.advancedListAPI)
+	api.POST("/system/files/move", server.requireAdvancedAPI(), server.limitBody(1<<20), server.csrfRequired(), server.advancedMoveAPI)
+	api.POST("/system/files/copy", server.requireAdvancedAPI(), server.limitBody(1<<20), server.csrfRequired(), server.advancedCopyAPI)
+	api.POST("/system/files/rename", server.requireAdvancedAPI(), server.limitBody(1<<20), server.csrfRequired(), server.advancedRenameAPI)
+	api.POST("/system/files/delete", server.requireAdvancedAPI(), server.limitBody(1<<20), server.csrfRequired(), server.advancedDeleteAPI)
+	api.POST("/system/files/new-file", server.requireAdvancedAPI(), server.limitBody(1<<20), server.csrfRequired(), server.advancedNewFileAPI)
+	api.POST("/system/files/new-folder", server.requireAdvancedAPI(), server.limitBody(1<<20), server.csrfRequired(), server.advancedNewFolderAPI)
+	api.POST("/system/files/upload", server.requireAdvancedAPI(), server.limitBody(200<<20), server.csrfRequired(), server.advancedUploadAPI)
+	api.GET("/projects/:id/files", server.filesListAPI)
+	api.POST("/projects/:id/files/move", server.limitBody(1<<20), server.csrfRequired(), server.moveFilesAPI)
+	api.POST("/projects/:id/files/copy", server.limitBody(1<<20), server.csrfRequired(), server.copyFilesAPI)
+	api.POST("/projects/:id/files/rename", server.limitBody(1<<20), server.csrfRequired(), server.renameFileAPI)
+	api.POST("/projects/:id/files/delete", server.limitBody(1<<20), server.csrfRequired(), server.deleteFilesAPI)
+	api.POST("/projects/:id/files/new-file", server.limitBody(1<<20), server.csrfRequired(), server.newFileAPI)
+	api.POST("/projects/:id/files/new-folder", server.limitBody(1<<20), server.csrfRequired(), server.newFolderAPI)
+	api.POST("/projects/:id/files/upload", server.limitBody(200<<20), server.csrfRequired(), server.uploadFilesAPI)
 
 	return router, nil
 }
@@ -347,6 +418,7 @@ func (s *Server) dashboardPage(c *gin.Context) {
 		Ports:          s.ports.Snapshot(c.Request.Context()),
 		Ollama:         s.ollama.Snapshot(c.Request.Context()),
 		Docker:         dockerSnapshot,
+		Update:         s.update.Snapshot(c.Request.Context(), false),
 		RefreshSeconds: s.cfg.Monitoring.RefreshSeconds,
 	}
 	s.renderProtected(c, http.StatusOK, "dashboard.html", "Dashboard", "dashboard", data, c.Query("success"), "")
@@ -368,12 +440,17 @@ func (s *Server) projectsPage(c *gin.Context) {
 }
 
 func (s *Server) newProjectPage(c *gin.Context) {
+	login, avatar, connected := s.gitHubAccountFor(c)
 	data := NewProjectPageData{
 		Roots:              s.projects.AllowedRoots(),
 		AppsDir:            s.cfg.Paths.AppsDir,
 		DeploymentsEnabled: s.deploy.Enabled(),
+		GitHubEnabled:      s.github.Enabled(),
+		GitHubConnected:    connected,
+		GitHubLogin:        login,
+		GitHubAvatar:       avatar,
 	}
-	s.renderProtected(c, http.StatusOK, "project_new.html", "Add existing project", "projects", data, "", c.Query("error"))
+	s.renderProtected(c, http.StatusOK, "project_new.html", "Add existing project", "projects", data, c.Query("success"), c.Query("error"))
 }
 
 func (s *Server) folderBrowserAPI(c *gin.Context) {
@@ -460,15 +537,23 @@ func (s *Server) importGitHub(c *gin.Context) {
 		return
 	}
 	user := s.mustUser(c)
+	owner := strings.TrimSpace(c.PostForm("owner"))
+	repo := strings.TrimSpace(c.PostForm("repo"))
+	requiresAuth := c.PostForm("private") == "true"
+	token := s.importGitHubToken(c, requiresAuth || (owner != "" && repo != ""))
 	project, err := s.deploy.ImportGitHub(c.Request.Context(), deployments.ImportInput{
 		Name:           c.PostForm("name"),
 		RepositoryURL:  c.PostForm("repository_url"),
+		Owner:          owner,
+		Repo:           repo,
 		Branch:         c.PostForm("branch"),
 		Directory:      c.PostForm("directory"),
 		DeployMode:     c.PostForm("deploy_mode"),
 		Domain:         c.PostForm("domain"),
 		Port:           port,
 		HealthcheckURL: c.PostForm("healthcheck_url"),
+		Token:          token,
+		RequiresAuth:   requiresAuth,
 	})
 	if err != nil {
 		s.audit(c, &user, "github_import", "repository", "", "Repository URL redacted from failure audit", false, err.Error())
@@ -691,7 +776,7 @@ func (s *Server) editFilePage(c *gin.Context) {
 		s.redirectError(c, filesURL(project.ID, filepath.Dir(filepath.FromSlash(path))), err)
 		return
 	}
-	data := FileEditData{Project: project, Path: filepath.ToSlash(path), Content: content}
+	data := FileEditData{Project: project, Path: filepath.ToSlash(path), Content: content, Base: fmt.Sprintf("/projects/%d/files", project.ID)}
 	s.renderProtected(c, http.StatusOK, "file_edit.html", "Edit "+filepath.Base(path), "projects", data, c.Query("success"), c.Query("error"))
 }
 
@@ -856,14 +941,28 @@ func (s *Server) mustUser(c *gin.Context) database.User {
 
 func (s *Server) renderProtected(c *gin.Context, status int, templateName, title, active string, data any, success, errorMessage string) {
 	s.render(c, status, templateName, PageData{
-		Title:     title,
-		Active:    active,
-		User:      s.mustUser(c),
-		CSRFToken: s.ensureCSRF(c),
-		Success:   success,
-		Error:     errorMessage,
-		Data:      data,
+		Title:           title,
+		Active:          active,
+		User:            s.mustUser(c),
+		CSRFToken:       s.ensureCSRF(c),
+		Success:         success,
+		Error:           errorMessage,
+		Advanced:        s.advancedActive(c),
+		AdvancedEnabled: s.cfg.Security.AdvancedMode.Enabled,
+		Data:            data,
 	})
+}
+
+func (s *Server) advancedActive(c *gin.Context) bool {
+	if !s.cfg.Security.AdvancedMode.Enabled {
+		return false
+	}
+	token, err := c.Cookie(sessionCookie)
+	if err != nil {
+		return false
+	}
+	active, _ := s.auth.AdvancedStatus(c.Request.Context(), token)
+	return active
 }
 
 func (s *Server) render(c *gin.Context, status int, templateName string, data PageData) {
