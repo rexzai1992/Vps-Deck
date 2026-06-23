@@ -80,6 +80,8 @@ Because the panel runs as the unprivileged `vpsdeck` user, it cannot rebuild or 
 
 These units are installed and enabled automatically by `scripts/install.sh`. **Existing installations must re-run the installer once** (or `sudo systemctl enable --now vpsdeck-update.path` after copying the two unit files) before browser updates work.
 
+The installer also runs `git config --system --add safe.directory /opt/vpsdeck/src` so the unprivileged `vpsdeck` user can read the root-owned checkout's revision for update detection. If the Updates page shows "Could not read the installed revision" on an older install, run that command once.
+
 You can still update from the shell at any time:
 
 ```bash
