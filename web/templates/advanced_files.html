@@ -1,0 +1,30 @@
+{{define "advanced_files.html"}}
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{.Title}} · VPSDeck</title><link rel="stylesheet" href="/static/app.css"><script defer src="/static/app.js"></script></head>
+<body>
+  {{template "sidebar" .}}
+  <main class="main">
+    {{template "topbar" .}}
+    <section class="content">
+      {{template "alerts" .}}
+      <div class="advanced-bar">
+        <span class="advanced-pill">⚠ ADVANCED MODE</span>
+        <span class="muted">Full filesystem access from <code>{{.Data.Root}}</code>. Changes here affect the whole server.</span>
+        <form method="post" action="/advanced-mode/disable"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><button class="text-button" type="submit">Exit Advanced Mode</button></form>
+      </div>
+      <div class="page-heading"><div><p class="eyebrow">SYSTEM FILES</p><h1>Filesystem explorer</h1><p class="muted">Drag to move, right-click for actions. This explorer is not restricted to a project.</p></div></div>
+
+      <div class="explorer"
+           data-explorer
+           data-files-base="{{.Data.Base}}"
+           data-files-api="{{.Data.APIBase}}"
+           data-current-path="{{.Data.CurrentPath}}"
+           data-csrf="{{.CSRFToken}}">
+        <noscript><div class="alert alert-warning">The filesystem explorer requires JavaScript.</div></noscript>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
+{{end}}

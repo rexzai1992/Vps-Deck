@@ -67,13 +67,45 @@ The important paths are:
 
 ## Update and rollback
 
-Run:
+VPSDeck checks its own GitHub branch for new commits and shows an **Updates** page (and a dashboard banner) when a newer version is available. Press **Update now** to apply it from the browser.
+
+Because the panel runs as the unprivileged `vpsdeck` user, it cannot rebuild or restart itself directly. Instead, pressing **Update now** writes a request flag to `/var/lib/vpsdeck/update.request`. A root-owned, path-activated systemd unit watches that flag and runs the updater:
+
+```text
+/etc/systemd/system/vpsdeck-update.path      watches the request flag
+/etc/systemd/system/vpsdeck-update.service   runs update.sh as root
+/var/lib/vpsdeck/update.request              update request flag (written by the panel)
+/var/lib/vpsdeck/update.status               progress/result the panel polls
+```
+
+These units are installed and enabled automatically by `scripts/install.sh`. **Existing installations must re-run the installer once** (or `sudo systemctl enable --now vpsdeck-update.path` after copying the two unit files) before browser updates work.
+
+You can still update from the shell at any time:
 
 ```bash
 sudo /opt/vpsdeck/src/scripts/update.sh
 ```
 
-The updater fetches `main`, runs tests, builds a new binary, restarts the service, and checks `/healthz`. If the health check fails, it restores the previous source revision and binary.
+Either way, the updater fetches the configured branch, runs tests, builds a new binary, restarts the service, and checks `/healthz`. If the health check fails, it restores the previous source revision and binary, and records the failure on the Updates page.
+
+## Connect a GitHub account (OAuth App)
+
+To let administrators browse and deploy their repositories (including private ones) from the panel, register a GitHub OAuth App and give VPSDeck its credentials.
+
+1. On GitHub: **Settings → Developer settings → OAuth Apps → New OAuth App**.
+   - Homepage URL: `https://vps.izzul.xyz`
+   - Authorization callback URL: `https://vps.izzul.xyz/integrations/github/callback`
+2. On the server, run the helper and paste the Client ID and Secret when prompted:
+
+```bash
+sudo /opt/vpsdeck/src/scripts/enable-github.sh
+```
+
+It generates the AES token key, writes `/etc/vpsdeck/github.env` (mode 0640, `root:vpsdeck`), and restarts VPSDeck. The installer already added `EnvironmentFile=-/etc/vpsdeck/github.env` to the service unit and created a disabled template, so the only manual values are the two OAuth credentials. To set them by hand instead, edit `/etc/vpsdeck/github.env`, set `VPSDECK_GITHUB_ENABLED=true`, and `sudo systemctl restart vpsdeck`.
+
+For local development, register an OAuth App with callback `http://127.0.0.1:8080/integrations/github/callback` and export the same `VPSDECK_GITHUB_*` variables before `go run ./cmd/server`.
+
+The OAuth access token is encrypted at rest with `VPSDECK_GITHUB_TOKEN_KEY` (AES-256-GCM) and is supplied to git through a temporary credential helper, never via the repository URL or command line. Keep the key stable; rotating it invalidates stored tokens and administrators must reconnect.
 
 ## Uninstall
 

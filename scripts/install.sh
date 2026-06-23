@@ -116,6 +116,11 @@ security:
   cookie_secure: true
   session_lifetime_hours: 12
   login_rate_limit_per_minute: 5
+  advanced_mode:
+    enabled: true
+    root: /
+    timeout_minutes: 15
+    second_password: ""
 
 paths:
   database: /var/lib/vpsdeck/vpsdeck.db
@@ -134,6 +139,15 @@ deployments:
   git_command: git
   timeout_seconds: 300
 
+updates:
+  enabled: true
+  source_dir: /opt/vpsdeck/src
+  branch: ${BRANCH}
+  git_command: git
+  check_interval_minutes: 30
+  request_path: /var/lib/vpsdeck/update.request
+  status_path: /var/lib/vpsdeck/update.status
+
 monitoring:
   refresh_seconds: 5
   ports:
@@ -151,6 +165,26 @@ docker:
 EOF
   chmod 0640 "$CONFIG_PATH"
   chown root:vpsdeck "$CONFIG_PATH"
+}
+
+write_github_env_template() {
+  local env_file="$CONFIG_DIR/github.env"
+  if [[ -f "$env_file" ]]; then
+    log "Keeping existing GitHub integration settings at $env_file"
+    return
+  fi
+  log "Writing GitHub integration template (disabled until you add OAuth credentials)"
+  cat >"$env_file" <<EOF
+# Fill in the OAuth App credentials, set ENABLED=true, then restart vpsdeck.
+# Or simply run: sudo $SOURCE_DIR/scripts/enable-github.sh
+VPSDECK_GITHUB_ENABLED=false
+VPSDECK_GITHUB_CLIENT_ID=
+VPSDECK_GITHUB_CLIENT_SECRET=
+VPSDECK_GITHUB_CALLBACK_URL=https://${DOMAIN}/integrations/github/callback
+VPSDECK_GITHUB_TOKEN_KEY=$(openssl rand -base64 32)
+EOF
+  chmod 0640 "$env_file"
+  chown root:vpsdeck "$env_file"
 }
 
 bootstrap_administrator() {
@@ -186,8 +220,13 @@ bootstrap_administrator() {
 
 install_service() {
   install -m 0644 "$SOURCE_DIR/scripts/vpsdeck.service" "$SERVICE_PATH"
+  # Privileged, path-activated self-updater. The panel runs unprivileged and only
+  # drops a request flag; this root service rebuilds and restarts VPSDeck.
+  install -m 0644 "$SOURCE_DIR/scripts/vpsdeck-update.service" /etc/systemd/system/vpsdeck-update.service
+  install -m 0644 "$SOURCE_DIR/scripts/vpsdeck-update.path" /etc/systemd/system/vpsdeck-update.path
   systemctl daemon-reload
   systemctl enable vpsdeck
+  systemctl enable --now vpsdeck-update.path
 }
 
 install_nginx_site() {
@@ -226,6 +265,10 @@ After DNS resolves to this VPS, enable HTTPS:
 Then open:
   https://${DOMAIN}
 
+Connect GitHub (optional):
+  Create a GitHub OAuth App with callback https://${DOMAIN}/integrations/github/callback
+  then run: sudo ${SOURCE_DIR}/scripts/enable-github.sh
+
 Service logs:
   journalctl -u vpsdeck -f
 EOF
@@ -239,6 +282,7 @@ create_account_and_directories
 checkout_source
 build_binary
 write_configuration
+write_github_env_template
 bootstrap_administrator
 install_service
 install_nginx_site

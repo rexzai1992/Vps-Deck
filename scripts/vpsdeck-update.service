@@ -1,0 +1,12 @@
+[Unit]
+Description=Apply a requested VPSDeck self-update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Runs as root: pulls the branch, rebuilds, restarts VPSDeck, and rolls back on
+# failure. update.sh removes the request flag and writes progress to the status
+# file the panel reads.
+ExecStart=/opt/vpsdeck/src/scripts/update.sh
+TimeoutStartSec=900

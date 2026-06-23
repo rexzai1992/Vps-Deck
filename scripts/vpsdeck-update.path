@@ -1,0 +1,10 @@
+[Unit]
+Description=Watch for VPSDeck self-update requests
+
+[Path]
+# The unprivileged panel writes this flag; systemd then starts the root updater.
+PathExists=/var/lib/vpsdeck/update.request
+Unit=vpsdeck-update.service
+
+[Install]
+WantedBy=multi-user.target

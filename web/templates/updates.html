@@ -1,0 +1,49 @@
+{{define "updates.html"}}
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{.Title}} · VPSDeck</title><link rel="stylesheet" href="/static/app.css"><script defer src="/static/app.js"></script></head>
+<body>
+  {{template "sidebar" .}}
+  <main class="main">
+    {{template "topbar" .}}
+    <section class="content">
+      {{template "alerts" .}}
+      <div class="page-heading"><div><p class="eyebrow">PANEL</p><h1>Software updates</h1><p class="muted">Keep VPSDeck up to date with the latest release on its GitHub branch.</p></div></div>
+
+      {{if not .Data.Update.Enabled}}
+        <div class="panel"><div class="alert alert-warning" style="margin:0">Self-update is disabled in this VPSDeck configuration.</div></div>
+      {{else}}
+      <div class="panel update-panel" data-monitor-update data-refresh="{{.Data.RefreshSeconds}}">
+        <div class="update-banner" data-update-banner hidden></div>
+
+        <div class="update-grid">
+          <div><span>Installed version</span><strong data-update-current>{{if .Data.Update.CurrentShort}}{{.Data.Update.CurrentShort}}{{else}}unknown{{end}}</strong></div>
+          <div><span>Latest on origin/{{.Data.Update.Branch}}</span><strong data-update-remote>{{if .Data.Update.RemoteShort}}{{.Data.Update.RemoteShort}}{{else}}—{{end}}</strong></div>
+          <div><span>Last checked</span><strong data-update-checked>just now</strong></div>
+        </div>
+
+        <div class="alert alert-warning update-error" data-update-error {{if not .Data.Update.Error}}hidden{{end}}>{{.Data.Update.Error}}</div>
+
+        <div class="update-progress" data-update-apply {{if not .Data.Update.Apply}}hidden{{end}}>
+          <strong>Update progress</strong>
+          <p><span class="update-state" data-update-state>{{if .Data.Update.Apply}}{{.Data.Update.Apply.State}}{{end}}</span> <span data-update-message>{{if .Data.Update.Apply}}{{.Data.Update.Apply.Message}}{{end}}</span></p>
+        </div>
+
+        <div class="update-actions">
+          <form method="post" action="/system/update/check">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <button class="button" type="submit">Check for updates</button>
+          </form>
+          <form method="post" action="/system/update/apply" data-confirm="Update VPSDeck now? It will rebuild and restart; the panel may be briefly unavailable.">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <button class="button button-primary" type="submit" data-update-apply-btn {{if not .Data.Update.Available}}disabled{{end}}>Update now</button>
+          </form>
+        </div>
+        <p class="form-note">Applying an update is handled by a privileged system service that rebuilds and restarts VPSDeck, then automatically rolls back if the new version fails its health check.</p>
+      </div>
+      {{end}}
+    </section>
+  </main>
+</body>
+</html>
+{{end}}

@@ -13,16 +13,37 @@
     <div class="nav-label">SYSTEM</div>
     <a class="{{if eq .Active "ports"}}active{{end}}" href="/network/ports"><span>⇄</span>Ports</a>
     <a class="{{if eq .Active "ollama"}}active{{end}}" href="/ollama"><span>◉</span>Ollama</a>
+    <a class="{{if eq .Active "updates"}}active{{end}}" href="/system/updates"><span>⟲</span>Updates</a>
     <a class="{{if eq .Active "audit"}}active{{end}}" href="/audit"><span>✓</span>Audit log</a>
+    {{if .AdvancedEnabled}}
+    <div class="nav-label">ADVANCED</div>
+    <a class="{{if eq .Active "advanced"}}active{{end}}" href="/advanced"><span>⚙</span>Advanced Mode</a>
+    {{if .Advanced}}<a class="{{if eq .Active "system-files"}}active{{end}}" href="/system/files"><span>▤</span>System Files</a>{{end}}
+    {{end}}
   </nav>
+  {{if .Advanced}}
+  <div class="sidebar-footer advanced"><span class="status-dot warn"></span><div><strong>Advanced Mode</strong><small>Full filesystem access</small></div></div>
+  {{else}}
   <div class="sidebar-footer"><span class="status-dot"></span><div><strong>Simple Mode</strong><small>Safe controls only</small></div></div>
+  {{end}}
 </aside>
 {{end}}
 
 {{define "topbar"}}
 <header class="topbar">
   <div class="mobile-brand"><span class="brand-mark">V</span>VPSDeck</div>
-  <div class="topbar-right"><span class="user-pill">{{.User.Username}} · {{.User.Role}}</span>
+  <div class="topbar-right">
+    {{if .AdvancedEnabled}}
+      {{if .Advanced}}
+      <form method="post" action="/advanced-mode/disable" class="mode-toggle-form">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        <button type="submit" class="mode-toggle on" title="Switch to Simple Mode"><span class="mode-toggle-track"><span class="mode-toggle-knob"></span></span><span class="mode-toggle-label">Advanced</span></button>
+      </form>
+      {{else}}
+      <a href="/advanced" class="mode-toggle off" title="Switch to Advanced Mode (asks for your password)"><span class="mode-toggle-track"><span class="mode-toggle-knob"></span></span><span class="mode-toggle-label">Simple</span></a>
+      {{end}}
+    {{end}}
+    <span class="user-pill">{{.User.Username}} · {{.User.Role}}</span>
     <form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><button class="text-button" type="submit">Sign out</button></form>
   </div>
 </header>
