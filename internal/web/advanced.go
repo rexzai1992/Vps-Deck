@@ -119,6 +119,10 @@ func (s *Server) disableAdvanced(c *gin.Context) {
 // --- full-filesystem explorer handlers (gated by requireAdvanced*) -----------
 
 func (s *Server) advancedFilesPage(c *gin.Context) {
+	if s.demoMode {
+		c.Redirect(http.StatusSeeOther, "/advanced?error="+url.QueryEscape("System file access is disabled in demo mode."))
+		return
+	}
 	data := AdvancedFilesData{
 		Root:        s.cfg.Security.AdvancedMode.Root,
 		CurrentPath: c.Query("path"),

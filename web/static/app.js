@@ -340,6 +340,14 @@ const modelCard = (model, running) => {
     details.append(row);
   });
   card.append(title, description, details);
+  if (!running) {
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "link-danger model-delete";
+    remove.textContent = "Delete";
+    remove.dataset.ollamaDelete = model.name;
+    card.append(remove);
+  }
   return card;
 };
 
@@ -374,6 +382,22 @@ const renderOllama = (data) => {
     installed.append(empty);
   }
   container.querySelector("[data-ollama-install]").hidden = data.status === "online" || data.status === "disabled";
+
+  const select = container.querySelector("[data-ollama-model]");
+  if (select) {
+    const names = [...new Set([
+      ...(data.running_models || []).map((model) => model.name),
+      ...(data.installed_models || []).map((model) => model.name),
+    ])];
+    const current = select.value;
+    select.replaceChildren();
+    if (names.length === 0) {
+      select.append(new Option("No models available", ""));
+    } else {
+      names.forEach((name) => select.append(new Option(name, name, false, name === current)));
+      if (names.includes(current)) select.value = current;
+    }
+  }
 };
 
 const updateDashboardMonitors = async () => {
@@ -1180,6 +1204,109 @@ const setupGitHubPicker = () => {
   loadRepos("");
 };
 
+const setupOllamaTools = () => {
+  const container = document.querySelector("[data-monitor-ollama]");
+  if (!container) return;
+  const csrf = container.dataset.csrf;
+
+  const post = async (url, fields) => {
+    const body = new FormData();
+    Object.entries(fields).forEach(([key, value]) => body.append(key, value));
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "X-CSRF-Token": csrf, Accept: "application/json" },
+      body,
+    });
+    if (response.status === 401) { window.location.assign("/login?error=Please+sign+in+to+continue."); throw new Error("Authentication required"); }
+    let data = {};
+    try { data = await response.json(); } catch (_) { /* ignore */ }
+    if (!response.ok && !data.ok) throw new Error(data.error || "Request failed");
+    return data;
+  };
+
+  const runButton = container.querySelector("[data-ollama-run]");
+  if (runButton) {
+    runButton.addEventListener("click", async () => {
+      const model = container.querySelector("[data-ollama-model]").value;
+      const prompt = container.querySelector("[data-ollama-prompt]").value;
+      const status = container.querySelector("[data-ollama-run-status]");
+      const output = container.querySelector("[data-ollama-output]");
+      if (!model) { showToast("Select a model first.", true); return; }
+      if (!prompt.trim()) { showToast("Enter a prompt.", true); return; }
+      runButton.disabled = true;
+      status.textContent = "Running…";
+      output.hidden = true;
+      try {
+        const data = await post("/api/monitors/ollama/generate", { model, prompt });
+        output.textContent = data.response || "(empty response)";
+        output.hidden = false;
+      } catch (error) {
+        showToast(error.message, true);
+      } finally {
+        runButton.disabled = false;
+        status.textContent = "";
+      }
+    });
+  }
+
+  const pullButton = container.querySelector("[data-ollama-pull]");
+  if (pullButton) {
+    pullButton.addEventListener("click", async () => {
+      const input = container.querySelector("[data-ollama-pull-name]");
+      const name = input.value.trim();
+      if (!name) { showToast("Enter a model name.", true); return; }
+      try {
+        await post("/api/monitors/ollama/pull", { name });
+        showToast(`Pulling ${name}…`);
+        input.value = "";
+        pollPulls();
+      } catch (error) { showToast(error.message, true); }
+    });
+  }
+
+  container.addEventListener("click", async (event) => {
+    const remove = event.target.closest("[data-ollama-delete]");
+    if (!remove) return;
+    const name = remove.dataset.ollamaDelete;
+    if (!window.confirm(`Delete model ${name}? This frees disk space and cannot be undone.`)) return;
+    try {
+      await post("/api/monitors/ollama/delete", { name });
+      showToast(`Deleted ${name}.`);
+      fetchJSON("/api/monitors/ollama").then(renderOllama).catch(() => {});
+    } catch (error) { showToast(error.message, true); }
+  });
+
+  const pullList = container.querySelector("[data-ollama-pull-list]");
+  const renderPulls = (pulls) => {
+    if (!pullList) return;
+    pullList.replaceChildren();
+    (pulls || []).forEach((pull) => {
+      const row = document.createElement("div");
+      row.className = "pull-row";
+      const top = document.createElement("div");
+      top.className = "pull-row-top";
+      const name = document.createElement("strong");
+      name.textContent = pull.name;
+      const state = document.createElement("span");
+      state.className = "muted";
+      if (pull.done && pull.success) state.textContent = "✓ installed";
+      else if (pull.done) state.textContent = `failed: ${pull.error || "unknown error"}`;
+      else if (pull.total) state.textContent = `${pull.status} · ${formatBytes(pull.completed)} / ${formatBytes(pull.total)}`;
+      else state.textContent = pull.status || "starting…";
+      top.append(name, state);
+      row.append(top);
+      const bar = document.createElement("progress");
+      bar.max = 100;
+      bar.value = pull.total ? Math.floor((pull.completed / pull.total) * 100) : (pull.done ? 100 : 0);
+      row.append(bar);
+      pullList.append(row);
+    });
+  };
+  const pollPulls = () => fetchJSON("/api/monitors/ollama/pull").then((data) => renderPulls(data.pulls)).catch(() => {});
+  pollPulls();
+  window.setInterval(pollPulls, 2000);
+};
+
 document.addEventListener("DOMContentLoaded", () => {
   const list = document.querySelector("[data-env-list]");
   const template = document.querySelector("[data-env-template]");
@@ -1191,4 +1318,5 @@ document.addEventListener("DOMContentLoaded", () => {
   setupFileExplorer();
   setupUpdatePolling();
   setupGitHubPicker();
+  setupOllamaTools();
 });

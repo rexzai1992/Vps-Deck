@@ -30,6 +30,7 @@
 {{end}}
 
 {{define "topbar"}}
+{{if .DemoMode}}<div class="demo-banner"><span class="demo-banner-icon">◈</span><div><strong>Demo mode</strong> — write actions are disabled. Sign in with <code>demo</code> / <code>demo</code> to explore.</div></div>{{end}}
 <header class="topbar">
   <div class="mobile-brand"><span class="brand-mark">V</span>VPSDeck</div>
   <div class="topbar-right">

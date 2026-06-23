@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/vpsdeck/vpsdeck/internal/demo"
 	"github.com/vpsdeck/vpsdeck/internal/selfupdate"
 )
 
@@ -13,6 +14,14 @@ type UpdatesPageData struct {
 }
 
 func (s *Server) updatesPage(c *gin.Context) {
+	if s.demoMode {
+		data := UpdatesPageData{
+			Update:         demo.UpdateSnapshot(),
+			RefreshSeconds: s.cfg.Monitoring.RefreshSeconds,
+		}
+		s.renderProtected(c, http.StatusOK, "updates.html", "Updates", "updates", data, c.Query("success"), c.Query("error"))
+		return
+	}
 	data := UpdatesPageData{
 		Update:         s.update.Snapshot(c.Request.Context(), false),
 		RefreshSeconds: s.cfg.Monitoring.RefreshSeconds,

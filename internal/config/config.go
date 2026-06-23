@@ -56,6 +56,7 @@ type AppConfig struct {
 	Port        int    `yaml:"port"`
 	BaseURL     string `yaml:"base_url"`
 	Environment string `yaml:"environment"`
+	DemoMode    bool   `yaml:"demo_mode"`
 }
 
 type SecurityConfig struct {
@@ -423,6 +424,9 @@ func applyEnvironment(cfg *Config) {
 	}
 	if os.Getenv("VPSDECK_GITHUB_ENABLED") == "true" {
 		cfg.Integrations.GitHub.Enabled = true
+	}
+	if os.Getenv("VPSDECK_DEMO_MODE") == "true" {
+		cfg.App.DemoMode = true
 	}
 }
 

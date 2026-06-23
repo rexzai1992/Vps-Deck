@@ -21,6 +21,7 @@ import (
 	"github.com/vpsdeck/vpsdeck/internal/config"
 	"github.com/vpsdeck/vpsdeck/internal/dashboard"
 	"github.com/vpsdeck/vpsdeck/internal/database"
+	"github.com/vpsdeck/vpsdeck/internal/demo"
 	"github.com/vpsdeck/vpsdeck/internal/deployments"
 	dockerdiscovery "github.com/vpsdeck/vpsdeck/internal/docker"
 	projectfiles "github.com/vpsdeck/vpsdeck/internal/files"
@@ -53,6 +54,7 @@ type Server struct {
 	limiter   *auth.RateLimiter
 	logger    *slog.Logger
 	templates *template.Template
+	demoMode  bool
 }
 
 type PageData struct {
@@ -64,6 +66,7 @@ type PageData struct {
 	Error           string
 	Advanced        bool
 	AdvancedEnabled bool
+	DemoMode        bool
 	Data            any
 }
 
@@ -234,6 +237,7 @@ func New(cfg config.Config, db *database.DB, authService *auth.Service, logger *
 		limiter:   auth.NewRateLimiter(cfg.Security.LoginRateLimitPerMinute, time.Minute),
 		logger:    logger,
 		templates: templates,
+		demoMode:  cfg.App.DemoMode,
 	}
 
 	server.deploy.SetTokenProvider(func(ctx context.Context) (string, error) {
@@ -255,7 +259,7 @@ func New(cfg config.Config, db *database.DB, authService *auth.Service, logger *
 	router.POST("/login", server.limitBody(1<<20), server.csrfRequired(), server.login)
 
 	protected := router.Group("/")
-	protected.Use(server.requireAuth())
+	protected.Use(server.requireAuth(), server.demoMutationGuard())
 	protected.GET("/dashboard", server.dashboardPage)
 	protected.POST("/logout", server.limitBody(1<<20), server.csrfRequired(), server.logout)
 	protected.GET("/projects", server.projectsPage)
@@ -301,6 +305,10 @@ func New(cfg config.Config, db *database.DB, authService *auth.Service, logger *
 	api.GET("/folders", server.folderBrowserAPI)
 	api.GET("/monitors/ports", server.portsAPI)
 	api.GET("/monitors/ollama", server.ollamaAPI)
+	api.POST("/monitors/ollama/generate", server.limitBody(1<<20), server.csrfRequired(), server.ollamaGenerate)
+	api.POST("/monitors/ollama/pull", server.limitBody(1<<20), server.csrfRequired(), server.ollamaPull)
+	api.GET("/monitors/ollama/pull", server.ollamaPullStatus)
+	api.POST("/monitors/ollama/delete", server.limitBody(1<<20), server.csrfRequired(), server.ollamaDelete)
 	api.GET("/system/update", server.updateStatusAPI)
 	api.GET("/integrations/github/repos", server.githubReposAPI)
 	api.GET("/integrations/github/branches", server.githubBranchesAPI)
@@ -350,6 +358,7 @@ func (s *Server) loginPage(c *gin.Context) {
 		Title:     "Sign in",
 		CSRFToken: token,
 		Error:     c.Query("error"),
+		DemoMode:  s.demoMode,
 	})
 }
 
@@ -405,6 +414,18 @@ func (s *Server) logout(c *gin.Context) {
 }
 
 func (s *Server) dashboardPage(c *gin.Context) {
+	if s.demoMode {
+		data := DashboardPageData{
+			Summary:        demo.DashboardSummary(),
+			Ports:          demo.PortSnapshot(),
+			Ollama:         demo.OllamaSnapshot(),
+			Docker:         demo.DockerSnapshot(),
+			Update:         demo.UpdateSnapshot(),
+			RefreshSeconds: s.cfg.Monitoring.RefreshSeconds,
+		}
+		s.renderProtected(c, http.StatusOK, "dashboard.html", "Dashboard", "dashboard", data, c.Query("success"), "")
+		return
+	}
 	dockerSnapshot := s.docker.Snapshot(c.Request.Context(), false)
 	s.docker.SyncRegistered(c.Request.Context(), dockerSnapshot)
 	summary, err := s.dashboard.Collect(c.Request.Context())
@@ -425,6 +446,13 @@ func (s *Server) dashboardPage(c *gin.Context) {
 }
 
 func (s *Server) projectsPage(c *gin.Context) {
+	if s.demoMode {
+		s.renderProtected(c, http.StatusOK, "projects.html", "Projects", "projects", ProjectsPageData{
+			Projects: demo.Projects(),
+			Docker:   demo.DockerSnapshot(),
+		}, c.Query("success"), c.Query("error"))
+		return
+	}
 	dockerSnapshot := s.docker.Snapshot(c.Request.Context(), false)
 	s.docker.SyncRegistered(c.Request.Context(), dockerSnapshot)
 	items, err := s.projects.List(c.Request.Context())
@@ -473,6 +501,13 @@ func (s *Server) folderBrowserAPI(c *gin.Context) {
 }
 
 func (s *Server) portsPage(c *gin.Context) {
+	if s.demoMode {
+		s.renderProtected(c, http.StatusOK, "ports.html", "Running ports", "ports", MonitorPageData{
+			RefreshSeconds: s.cfg.Monitoring.RefreshSeconds,
+			Ports:          demo.PortSnapshot(),
+		}, "", "")
+		return
+	}
 	data := MonitorPageData{
 		RefreshSeconds: s.cfg.Monitoring.RefreshSeconds,
 		Ports:          s.ports.Snapshot(c.Request.Context()),
@@ -481,6 +516,13 @@ func (s *Server) portsPage(c *gin.Context) {
 }
 
 func (s *Server) ollamaPage(c *gin.Context) {
+	if s.demoMode {
+		s.renderProtected(c, http.StatusOK, "ollama.html", "Ollama monitor", "ollama", MonitorPageData{
+			RefreshSeconds: s.cfg.Monitoring.RefreshSeconds,
+			Ollama:         demo.OllamaSnapshot(),
+		}, "", "")
+		return
+	}
 	data := MonitorPageData{
 		RefreshSeconds: s.cfg.Monitoring.RefreshSeconds,
 		Ollama:         s.ollama.Snapshot(c.Request.Context()),
@@ -489,14 +531,26 @@ func (s *Server) ollamaPage(c *gin.Context) {
 }
 
 func (s *Server) portsAPI(c *gin.Context) {
+	if s.demoMode {
+		c.JSON(http.StatusOK, demo.PortSnapshot())
+		return
+	}
 	c.JSON(http.StatusOK, s.ports.Snapshot(c.Request.Context()))
 }
 
 func (s *Server) ollamaAPI(c *gin.Context) {
+	if s.demoMode {
+		c.JSON(http.StatusOK, demo.OllamaSnapshot())
+		return
+	}
 	c.JSON(http.StatusOK, s.ollama.Snapshot(c.Request.Context()))
 }
 
 func (s *Server) fileProjectsPage(c *gin.Context) {
+	if s.demoMode {
+		s.renderProtected(c, http.StatusOK, "file_projects.html", "Files", "files", demo.Projects(), "", "")
+		return
+	}
 	items, err := s.projects.List(c.Request.Context())
 	if err != nil {
 		s.logger.Error("list projects for files", "error", err)
@@ -584,6 +638,24 @@ func (s *Server) importDockerCompose(c *gin.Context) {
 }
 
 func (s *Server) projectPage(c *gin.Context) {
+	if s.demoMode {
+		id, err := parseID(c.Param("id"))
+		if err != nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		project, ok := demo.ProjectByID(id)
+		if !ok {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		s.renderProtected(c, http.StatusOK, "project_detail.html", project.Name, "projects", ProjectPageData{
+			Project:            project,
+			Deployments:        demo.DeploymentsByProjectID(id),
+			DeploymentsEnabled: true,
+		}, c.Query("success"), c.Query("error"))
+		return
+	}
 	dockerSnapshot := s.docker.Snapshot(c.Request.Context(), false)
 	s.docker.SyncRegistered(c.Request.Context(), dockerSnapshot)
 	id, err := parseID(c.Param("id"))
@@ -643,6 +715,10 @@ func (s *Server) deployProject(c *gin.Context) {
 }
 
 func (s *Server) deploymentsPage(c *gin.Context) {
+	if s.demoMode {
+		s.renderProtected(c, http.StatusOK, "deployments.html", "Deployments", "deployments", demo.Deployments(), "", "")
+		return
+	}
 	history, err := s.db.ListDeployments(c.Request.Context(), 100)
 	if err != nil {
 		s.logger.Error("list deployments", "error", err)
@@ -674,6 +750,10 @@ func (s *Server) deleteProject(c *gin.Context) {
 }
 
 func (s *Server) filesPage(c *gin.Context) {
+	if s.demoMode {
+		c.Redirect(http.StatusSeeOther, "/files?error="+url.QueryEscape("File browsing is disabled in demo mode."))
+		return
+	}
 	project, ok := s.projectForRequest(c)
 	if !ok {
 		return
@@ -766,6 +846,10 @@ func (s *Server) deleteFile(c *gin.Context) {
 }
 
 func (s *Server) editFilePage(c *gin.Context) {
+	if s.demoMode {
+		c.Redirect(http.StatusSeeOther, "/files?error="+url.QueryEscape("File editing is disabled in demo mode."))
+		return
+	}
 	project, ok := s.projectForRequest(c)
 	if !ok {
 		return
@@ -811,6 +895,10 @@ func (s *Server) downloadFile(c *gin.Context) {
 }
 
 func (s *Server) envPage(c *gin.Context) {
+	if s.demoMode {
+		c.Redirect(http.StatusSeeOther, "/projects?error="+url.QueryEscape("Environment editing is disabled in demo mode."))
+		return
+	}
 	project, ok := s.projectForRequest(c)
 	if !ok {
 		return
@@ -866,6 +954,10 @@ func (s *Server) saveEnv(c *gin.Context) {
 }
 
 func (s *Server) auditPage(c *gin.Context) {
+	if s.demoMode {
+		s.renderProtected(c, http.StatusOK, "audit.html", "Audit log", "audit", demo.AuditEntries(), "", "")
+		return
+	}
 	entries, err := s.db.ListAudit(c.Request.Context(), 200)
 	if err != nil {
 		s.logger.Error("list audit entries", "error", err)
@@ -873,6 +965,28 @@ func (s *Server) auditPage(c *gin.Context) {
 		return
 	}
 	s.renderProtected(c, http.StatusOK, "audit.html", "Audit log", "audit", entries, "", "")
+}
+
+func (s *Server) demoMutationGuard() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !s.demoMode || c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead {
+			c.Next()
+			return
+		}
+		if c.Request.URL.Path == "/logout" {
+			c.Next()
+			return
+		}
+		ref := c.Request.Referer()
+		if ref == "" {
+			ref = "/dashboard"
+		}
+		if u, err := url.Parse(ref); err == nil {
+			ref = u.Path
+		}
+		c.Redirect(http.StatusSeeOther, ref+"?error="+url.QueryEscape("This action is disabled in demo mode."))
+		c.Abort()
+	}
 }
 
 func (s *Server) requireAuth() gin.HandlerFunc {
@@ -949,6 +1063,7 @@ func (s *Server) renderProtected(c *gin.Context, status int, templateName, title
 		Error:           errorMessage,
 		Advanced:        s.advancedActive(c),
 		AdvancedEnabled: s.cfg.Security.AdvancedMode.Enabled,
+		DemoMode:        s.demoMode,
 		Data:            data,
 	})
 }

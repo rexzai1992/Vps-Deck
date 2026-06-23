@@ -40,10 +40,13 @@ func main() {
 	defer db.Close()
 
 	authService := auth.NewService(db, cfg.Security.SessionLifetime)
-	created, err := authService.BootstrapAdmin(
-		os.Getenv("VPSDECK_ADMIN_USERNAME"),
-		os.Getenv("VPSDECK_ADMIN_PASSWORD"),
-	)
+	adminUser := os.Getenv("VPSDECK_ADMIN_USERNAME")
+	adminPass := os.Getenv("VPSDECK_ADMIN_PASSWORD")
+	if cfg.App.DemoMode && adminUser == "" {
+		adminUser = "demo"
+		adminPass = "demo"
+	}
+	created, err := authService.BootstrapAdmin(adminUser, adminPass)
 	if err != nil {
 		logger.Error("bootstrap admin", "error", err)
 		os.Exit(1)
