@@ -1,122 +1,155 @@
 # VPSDeck
 
-VPSDeck is a Go-based web control panel for managing projects and VPS services through a beginner-friendly browser interface.
+**A browser-based control panel for your VPS — no terminal required.**
 
-The current runnable slice includes:
+VPSDeck replaces the terminal for everyday server tasks: deploy from GitHub, manage files, monitor resources, and keep Ollama models in check — all from a clean web UI that runs on your own machine.
 
-- Secure first-admin bootstrap
-- Login/logout with SQLite-backed sessions
-- CSRF protection and login rate limiting
-- Live CPU, RAM, storage, uptime, OS, kernel, and local-IP dashboard
-- Existing-folder project registration with project-type detection
-- Strict Simple Mode path-root validation
-- Project list/detail/unregister flow
-- Windows Explorer–style project file manager: live grid with multi-select, right-click menu, drag-and-drop move/copy, drag-from-desktop multi-upload, inline rename, keyboard shortcuts, and Details/Icons views
-- Safe file/folder move, copy (auto-renaming on conflict), rename, download, folder ZIP download, and confirmed recursive delete — all contained to the registered project root
-- Browser text editor with automatic pre-save backups
-- Key-value `.env` editor with secret masking
-- Audit log for login and project actions
-- Visual approved-root folder picker when registering projects
-- Live TCP/UDP port monitor with project-port matching
-- Local or remote Ollama health and model monitor
-- Read-only official Ollama installation guidance when unavailable
-- Docker Compose auto-discovery from Docker labels, with explicit project import
-- Runtime status synchronization and published-port association for imported Compose projects
-- One-click GitHub account connect (OAuth App) with a searchable repository and branch picker, including private repositories
-- Encrypted-at-rest GitHub token storage and authenticated clones/fetches that never expose the token in a URL or command line
-- Self-update: detects new commits on VPSDeck's own branch, shows an Updates page and dashboard banner, and applies the update through a privileged path-activated system service
-- Advanced Mode (password re-confirmation, audit, inactivity timeout) unlocking a full-filesystem explorer with the same drag-and-drop file management as the project explorer
-- GitHub repository cloning into the managed apps directory
-- Audited, fast-forward-only GitHub deployments with dirty-tree protection
-- Optional validated Docker Compose rebuilds after Git synchronization
-- Deployment history with before/after commit IDs and bounded command output
-- Visual `.env` editing followed by an optional one-click deployment
+> **Live demo →** [vps.izzul.xyz](https://vps.izzul.xyz) &nbsp;·&nbsp; sign in with `demo` / `demo`
 
-## Run locally
+---
 
-Create an initial administrator on the first run:
+## What it does
+
+| Area | Features |
+|---|---|
+| **Dashboard** | Live CPU, RAM, disk, uptime, kernel, OS, and local IP |
+| **Projects** | Register existing app folders, auto-detects project type |
+| **Deploy** | Clone from GitHub, fast-forward-only git deploys, Docker Compose rebuilds |
+| **File Manager** | Explorer-style drag-and-drop, multi-select, rename, ZIP download, text editor |
+| **Environment** | Key-value `.env` editor with secret masking |
+| **Ports** | Live TCP/UDP port monitor with project-port matching |
+| **Ollama** | Health, version, installed and loaded model monitor + playground |
+| **Docker** | Auto-discovers Compose stacks, imports them as projects |
+| **Updates** | Watches its own branch, one-click update + restart |
+| **Audit log** | Every login, deploy, and file action is logged |
+| **Advanced Mode** | Full-filesystem explorer unlocked by password re-confirm + timeout |
+| **GitHub OAuth** | Browse private repos, encrypted-at-rest token, never in a URL |
+
+---
+
+## Screenshots
+
+> Visit **[vps.izzul.xyz](https://vps.izzul.xyz)** to explore the full UI live. Sign in with `demo` / `demo`.
+
+---
+
+## Quick start (local)
 
 ```bash
+git clone https://github.com/rexzai1992/Vps-Deck.git
+cd Vps-Deck
+
 VPSDECK_ADMIN_USERNAME=admin \
 VPSDECK_ADMIN_PASSWORD='ChangeThisStrong123' \
 go run ./cmd/server
 ```
 
-Open <http://127.0.0.1:8080>.
-
-After the first administrator is stored, the environment variables are no longer required.
-
-## Test and build
+Open [http://127.0.0.1:8080](http://127.0.0.1:8080). After the first admin is created the env vars are no longer needed.
 
 ```bash
-go test ./...
-go build ./cmd/server
+go test ./...          # run tests
+go build ./cmd/server  # build binary
 ```
 
-Configuration lives in `configs/config.yaml`. Production defaults are documented in `configs/config.example.yaml`.
+Config lives in `configs/config.yaml`. A fully-annotated example is at `configs/config.example.yaml`.
 
-For local development, project folders must be placed under `managed-apps/` unless `simple_mode_roots` is changed.
+---
 
-Monitor another Ollama server by changing `monitoring.ollama.base_url` or setting:
+## Install on Ubuntu VPS (production)
+
+The installer creates a system user, builds the binary, configures systemd, and sets up an Nginx virtual host:
+
+```bash
+git clone https://github.com/rexzai1992/Vps-Deck.git /tmp/vpsdeck-src
+sudo bash /tmp/vpsdeck-src/scripts/install.sh
+```
+
+See [`docs/INSTALL.md`](docs/INSTALL.md) for DNS setup, HTTPS, rollback, and uninstall.
+
+---
+
+## Demo mode
+
+Run a read-only public demo with realistic fake data — no real system access, all write actions disabled:
+
+```bash
+VPSDECK_DEMO_MODE=true go run ./cmd/server
+```
+
+Auto-creates a `demo` / `demo` login and seeds the UI with fake projects, deployments, ports, and Ollama models. Safe to expose publicly.
+
+---
+
+## Deploy from GitHub
+
+1. Open **Add Project → Deploy from GitHub**
+2. Enter a public HTTPS repo URL, branch, and project name
+3. VPSDeck clones it into `apps_dir`, opens the `.env` editor, and enables **Deploy latest** on the project page
+
+Deployments are fast-forward-only, refuse dirty trees, record commit IDs and output, and optionally run `docker compose up -d --build`.
+
+---
+
+## GitHub OAuth (private repos)
+
+```bash
+export VPSDECK_GITHUB_ENABLED=true
+export VPSDECK_GITHUB_CLIENT_ID=your_client_id
+export VPSDECK_GITHUB_CLIENT_SECRET=your_client_secret
+export VPSDECK_GITHUB_CALLBACK_URL=https://your-domain/integrations/github/callback
+export VPSDECK_GITHUB_TOKEN_KEY=$(openssl rand -base64 32)
+```
+
+Create the OAuth App at **GitHub → Settings → Developer settings → OAuth Apps**. Tokens are AES-encrypted at rest and never appear in URLs or shell commands.
+
+---
+
+## Ollama monitor
+
+Shows version, installed models, loaded models, and VRAM usage for a local or remote Ollama instance:
 
 ```bash
 VPSDECK_OLLAMA_BASE_URL=http://another-server:11434 go run ./cmd/server
 ```
 
-For remote Ollama, prefer a private network, VPN, or authenticated reverse proxy.
+For remote Ollama, use a private network, VPN, or authenticated reverse proxy.
 
-When Docker Compose discovery is enabled, the Projects page lists running and stopped Compose stacks found on the server. Importing a detected stack registers its trusted Docker-reported working directory, published host port, and runtime status in VPSDeck.
+---
 
-## Deploy from GitHub
+## Advanced Mode
 
-Open **Add Project → Deploy from GitHub**, then provide a public HTTPS repository URL, branch, project name, and deployment mode.
+Simple Mode keeps file access scoped to registered projects. **Advanced Mode** unlocks a full-filesystem Explorer rooted at `/`, secured by password re-confirmation and an inactivity timeout. Every entry and exit is audited. Configure under `security.advanced_mode` in `config.yaml`.
 
-VPSDeck clones the repository into the configured `apps_dir`, opens the visual `.env` editor, and enables **Deploy latest** on the project page. Deployments:
+---
 
-- refuse tracked local changes instead of overwriting them;
-- fetch only the configured branch;
-- use a fast-forward-only merge;
-- record commit IDs, status, output, errors, and audit events;
-- optionally validate and run `docker compose up -d --build`.
+## Self-update
 
-Repository URLs containing credentials are rejected.
+VPSDeck watches its own GitHub branch and shows a banner when a new commit is available. Click **Update now** — the panel rebuilds and restarts via a root-owned systemd path unit installed by `scripts/install.sh`.
 
-## Connect a GitHub account (OAuth)
+---
 
-To browse and deploy your repositories — including private ones — without pasting URLs, enable the GitHub OAuth App integration.
+## Security
 
-1. Create a GitHub OAuth App (Settings → Developer settings → OAuth Apps) with the Authorization callback URL `https://your-domain/integrations/github/callback`.
-2. Provide the credentials and a 32-byte AES key (base64) to VPSDeck via environment variables (preferred over committing them to YAML):
+- Bcrypt password hashing
+- SHA-256 session tokens in HttpOnly cookies
+- CSRF double-submit cookie
+- Login rate limiting
+- Strict Simple Mode path-root validation (no path traversal)
+- GitHub tokens AES-encrypted at rest, never in URLs
+- Repository URLs with embedded credentials are rejected
 
-```bash
-export VPSDECK_GITHUB_ENABLED=true
-export VPSDECK_GITHUB_CLIENT_ID=...           # from the OAuth App
-export VPSDECK_GITHUB_CLIENT_SECRET=...        # from the OAuth App
-export VPSDECK_GITHUB_CALLBACK_URL=https://your-domain/integrations/github/callback
-export VPSDECK_GITHUB_TOKEN_KEY=$(openssl rand -base64 32)
-```
+---
 
-Then open **Add Project → Deploy from GitHub → Connect GitHub**. The access token is encrypted at rest with the key and is never written into a repository URL or command line. Keep `VPSDECK_GITHUB_TOKEN_KEY` stable — rotating it invalidates stored tokens (reconnect the account).
+## Tech stack
 
-## Advanced Mode (full-filesystem explorer)
+- **Go 1.25** — single binary, no runtime dependencies
+- **Gin** — HTTP router and middleware
+- **html/template** — server-rendered, no JavaScript framework
+- **modernc.org/sqlite** — pure-Go SQLite, no CGo
+- **gopsutil** — cross-platform system metrics
 
-Simple Mode keeps file management scoped to registered projects. To browse and edit the whole server, open **Advanced Mode** (sidebar → Advanced), re-enter your password (and an optional configured second password), and a time-limited session unlocks **System Files** — the same Explorer-style manager rooted at `/`. It turns off automatically after the configured timeout, and every entry/exit is audited.
+---
 
-Configure it under `security.advanced_mode` (enabled, `root`, `timeout_minutes`, optional `second_password`). Operations are still bound by the `vpsdeck` OS user's own permissions.
+## License
 
-## Update the panel
-
-VPSDeck watches its own GitHub branch and shows an **Updates** page (and a dashboard banner) when a newer commit is available. Press **Update now** to rebuild and restart. Because the panel runs unprivileged, applying an update is handled by a root-owned, path-activated system service installed by `scripts/install.sh` — existing installs must re-run the installer once. See [`docs/INSTALL.md`](docs/INSTALL.md#update-and-rollback).
-
-Read `VPSDECK_PROJECT_CONTEXT.md` before continuing development.
-
-## Install on an Ubuntu VPS
-
-VPSDeck includes a production installer that creates a dedicated system user, builds the Go binary, configures systemd, and adds an isolated Nginx virtual host:
-
-```bash
-git clone https://github.com/rexzai1992/Vps-Deck.git /tmp/vpsdeck-installer
-sudo bash /tmp/vpsdeck-installer/scripts/install.sh
-```
-
-See [`docs/INSTALL.md`](docs/INSTALL.md) for DNS, HTTPS, updates, rollback, permissions, and uninstall instructions.
+MIT
