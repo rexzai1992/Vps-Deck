@@ -63,6 +63,23 @@ func (s *Service) BootstrapAdmin(username, password string) (bool, error) {
 	return true, nil
 }
 
+// EnsureDemoUser creates a demo/demo account if it does not already exist.
+// Only called when VPSDECK_DEMO_MODE=true.
+func (s *Service) EnsureDemoUser() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if _, err := s.db.UserByUsername(ctx, "demo"); err == nil {
+		return nil // already exists
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte("demo"), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash demo password: %w", err)
+	}
+	_, err = s.db.CreateUser(ctx, "demo", string(hash), "admin")
+	return err
+}
+
 func ValidatePassword(password string) error {
 	if len(password) < 12 {
 		return errors.New("administrator password must be at least 12 characters")

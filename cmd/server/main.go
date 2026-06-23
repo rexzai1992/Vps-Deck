@@ -40,13 +40,10 @@ func main() {
 	defer db.Close()
 
 	authService := auth.NewService(db, cfg.Security.SessionLifetime)
-	adminUser := os.Getenv("VPSDECK_ADMIN_USERNAME")
-	adminPass := os.Getenv("VPSDECK_ADMIN_PASSWORD")
-	if cfg.App.DemoMode && adminUser == "" {
-		adminUser = "demo"
-		adminPass = "demo"
-	}
-	created, err := authService.BootstrapAdmin(adminUser, adminPass)
+	created, err := authService.BootstrapAdmin(
+		os.Getenv("VPSDECK_ADMIN_USERNAME"),
+		os.Getenv("VPSDECK_ADMIN_PASSWORD"),
+	)
 	if err != nil {
 		logger.Error("bootstrap admin", "error", err)
 		os.Exit(1)
@@ -57,6 +54,14 @@ func main() {
 	if *bootstrapOnly {
 		logger.Info("administrator bootstrap complete", "created", created)
 		return
+	}
+
+	if cfg.App.DemoMode {
+		if err := authService.EnsureDemoUser(); err != nil {
+			logger.Error("ensure demo user", "error", err)
+			os.Exit(1)
+		}
+		logger.Info("demo mode active — demo/demo account ready")
 	}
 
 	handler, err := webserver.New(cfg, db, authService, logger)
