@@ -87,6 +87,15 @@ checkout_source() {
   fi
 }
 
+configure_git_safe_directory() {
+  # The panel runs as the unprivileged vpsdeck user while the source checkout is
+  # owned by root. Mark it safe so git self-update revision checks don't fail
+  # with "dubious ownership".
+  if ! git config --system --get-all safe.directory 2>/dev/null | grep -qx "$SOURCE_DIR"; then
+    git config --system --add safe.directory "$SOURCE_DIR"
+  fi
+}
+
 build_binary() {
   log "Building VPSDeck"
   (
@@ -280,6 +289,7 @@ install_packages
 install_go
 create_account_and_directories
 checkout_source
+configure_git_safe_directory
 build_binary
 write_configuration
 write_github_env_template
