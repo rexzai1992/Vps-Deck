@@ -63,6 +63,45 @@
         </section>
       </div>
 
+      {{if not .Data.Routes}}
+      <section class="panel domain-guide-panel">
+        <div class="panel-heading"><div><h2>How to connect a domain</h2><p>Make this project accessible on a public hostname.</p></div></div>
+        <ol class="domain-guide-steps">
+          <li>
+            <span class="dg-num">1</span>
+            <div>
+              <strong>Point your DNS to this VPS</strong>
+              <p>In your domain registrar, add an <code>A</code> record for your hostname (e.g. <code>app.example.com</code>) pointing to this server's IP address. Allow a few minutes for propagation.</p>
+            </div>
+          </li>
+          <li>
+            <span class="dg-num">2</span>
+            <div>
+              <strong>Add a domain route in VPSDeck</strong>
+              <p>Go to <a href="/domains">Domains</a> → <em>Add managed route</em>. Set the hostname, select this project, and click <strong>Create route</strong>.</p>
+            </div>
+          </li>
+          <li>
+            <span class="dg-num">3</span>
+            <div>
+              <strong>Test and apply</strong>
+              <p>Back in the Domains table, click <strong>Test</strong> to verify the Nginx config is valid, then <strong>Apply</strong> to reload Nginx and go live.</p>
+            </div>
+          </li>
+          <li>
+            <span class="dg-num">4</span>
+            <div>
+              <strong>SSL (optional)</strong>
+              <p>Once the HTTP route is live, run <code>sudo certbot --nginx -d app.example.com</code> on your VPS to obtain a free Let's Encrypt certificate. Certbot will update the Nginx config automatically.</p>
+            </div>
+          </li>
+        </ol>
+        <div class="domain-guide-actions">
+          <a class="button button-primary" href="/domains">Go to Domains</a>
+        </div>
+      </section>
+      {{end}}
+
       <section class="panel deployment-history">
         <div class="panel-heading"><div><h2>Deployment history</h2><p>Audited Git clone and deploy results</p></div><a class="button button-small" href="/deployments">View all</a></div>
         {{if .Data.Deployments}}
