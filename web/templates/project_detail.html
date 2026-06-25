@@ -28,7 +28,20 @@
           <dl class="detail-list">
             <div><dt>Type</dt><dd>{{.Data.Project.Type}}</dd></div>
             <div><dt>Folder</dt><dd><code>{{.Data.Project.WorkingDir}}</code></dd></div>
-            <div><dt>Domain</dt><dd>{{if .Data.Project.Domain}}{{.Data.Project.Domain}}{{else}}Not connected{{end}}</dd></div>
+            <div><dt>Domain</dt><dd>
+              {{if .Data.Routes}}
+                {{range .Data.Routes}}
+                  <span>
+                    {{if .SSLEnabled}}<a href="https://{{.Hostname}}" target="_blank" rel="noreferrer">https://{{.Hostname}}</a>{{else}}<a href="http://{{.Hostname}}" target="_blank" rel="noreferrer">http://{{.Hostname}}</a>{{end}}
+                    {{if .Enabled}}<span class="status status-online" style="margin-left:6px"><i></i>active</span>{{else}}<span class="status status-disabled" style="margin-left:6px"><i></i>disabled</span>{{end}}
+                  </span><br>
+                {{end}}
+              {{else if .Data.Project.Port}}
+                <span class="muted">No domain — direct access:</span><br>
+                <code>{{.Data.BaseURL}}:{{.Data.Project.Port}}</code>
+                <a class="button button-small" href="/domains" style="margin-left:8px">Add domain</a>
+              {{else}}Not connected{{end}}
+            </dd></div>
             <div><dt>Port</dt><dd>{{if .Data.Project.Port}}{{.Data.Project.Port}}{{else}}Not set{{end}}</dd></div>
             <div><dt>Health check</dt><dd>{{if .Data.Project.HealthcheckURL}}{{.Data.Project.HealthcheckURL}}{{else}}Not configured{{end}}</dd></div>
             <div><dt>Added</dt><dd>{{.Data.Project.CreatedAt.Format "2 Jan 2006, 15:04"}}</dd></div>

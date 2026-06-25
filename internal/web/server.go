@@ -127,6 +127,8 @@ type ProjectPageData struct {
 	HasSource          bool
 	Deployments        []database.Deployment
 	DeploymentsEnabled bool
+	Routes             []database.ProxyRoute // nginx proxy routes linked to this project
+	BaseURL            string                // fallback access URL when no domain route exists
 }
 
 type NewProjectPageData struct {
@@ -299,6 +301,7 @@ func New(cfg config.Config, db *database.DB, authService *auth.Service, logger *
 	protected.POST("/domains/:id/apply", server.limitBody(1<<20), server.csrfRequired(), server.applyDomainRoute)
 	protected.POST("/domains/:id/disable", server.limitBody(1<<20), server.csrfRequired(), server.disableDomainRoute)
 	protected.POST("/domains/:id/delete", server.limitBody(1<<20), server.csrfRequired(), server.deleteDomainRoute)
+	protected.POST("/domains/import", server.limitBody(1<<20), server.csrfRequired(), server.importDomainRoute)
 	protected.GET("/network/ports", server.portsPage)
 	protected.GET("/ollama", server.ollamaPage)
 	protected.GET("/system/updates", server.updatesPage)
@@ -723,6 +726,7 @@ func (s *Server) projectPage(c *gin.Context) {
 	data := ProjectPageData{
 		Project:            project,
 		DeploymentsEnabled: s.deploy.Enabled(),
+		BaseURL:            s.cfg.App.BaseURL,
 	}
 	if source, sourceErr := s.deploy.Source(c.Request.Context(), project.ID); sourceErr == nil {
 		data.Source = source
@@ -734,6 +738,11 @@ func (s *Server) projectPage(c *gin.Context) {
 		data.Deployments = history
 	} else {
 		s.logger.Warn("load project deployments", "project_id", project.ID, "error", historyErr)
+	}
+	if routes, routesErr := s.db.ListProxyRoutesByProjectID(c.Request.Context(), project.ID); routesErr == nil {
+		data.Routes = routes
+	} else {
+		s.logger.Warn("load project routes", "project_id", project.ID, "error", routesErr)
 	}
 	s.renderProtected(c, http.StatusOK, "project_detail.html", project.Name, "projects", data, c.Query("success"), c.Query("error"))
 }

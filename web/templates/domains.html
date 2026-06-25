@@ -9,37 +9,81 @@
     <section class="content">
       {{template "alerts" .}}
       <div class="page-heading">
-        <div><p class="eyebrow">REVERSE PROXY</p><h1>Domains</h1><p class="muted">Route public hostnames through VPSDeck-managed Nginx configs.</p></div>
+        <div><p class="eyebrow">REVERSE PROXY</p><h1>Domains</h1><p class="muted">Nginx routes on this VPS — scan is read-only and never modifies any config.</p></div>
       </div>
 
-      <section class="panel form-panel">
-        <div class="panel-heading"><div><h2>Add route</h2><p>Routes are saved first. This route is managed by VPSDeck only.</p></div></div>
-        <form method="post" action="/domains" data-domain-route-form>
-          <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-          <div class="form-grid">
-            <label><span>Hostname</span><input name="hostname" placeholder="app.example.com" required></label>
-            <label><span>Route type</span><select name="target_type" data-domain-target-type><option value="project">Project</option><option value="panel">VPSDeck panel</option></select></label>
-            <label><span>Project</span><select name="project_id" data-domain-project><option value="">Panel route or auto-select later</option>{{range .Data.Projects}}<option value="{{.ID}}" data-port="{{.Port}}">{{.Name}} · {{.Type}}</option>{{end}}</select></label>
-            <label><span>Target port <em>optional</em></span><input name="target_port" data-domain-target-port type="number" min="1" max="65535" placeholder="Auto or existing project port"><small>Project auto-ports use {{.Data.InternalPortRange}}. Panel target is {{.Data.PanelTarget}}.</small></label>
-          </div>
-          <div class="form-actions"><button class="button button-primary" type="submit">Create route</button></div>
-        </form>
+      {{/* ── SECTION A: Panel Domain (pinned) ─────────────────────────── */}}
+      <section class="panel deployment-history">
+        <div class="panel-heading"><div><h2>Panel domain</h2><p>The Nginx config that routes the public hostname to this VPSDeck panel.</p></div></div>
+        {{if .Data.PanelRoute}}
+        {{with .Data.PanelRoute}}
+        <table>
+          <thead><tr><th>Hostname</th><th>Config file</th><th>Target</th><th>SSL</th><th>Cert expiry</th><th>State</th></tr></thead>
+          <tbody>
+            <tr class="domain-pinned-row">
+              <td><strong>{{.Hostname}}</strong><small class="type-badge badge-panel">panel</small></td>
+              <td><code class="path-code">{{.ConfigFile}}</code></td>
+              <td><code>{{.ProxyPass}}</code></td>
+              <td>{{if .SSLEnabled}}<span class="status status-online"><i></i>SSL</span>{{else}}<span class="status status-disabled"><i></i>plain</span>{{end}}</td>
+              <td>{{if .CertExpiry}}
+                {{if .CertExpired}}<span class="cert-badge cert-expired">Expired</span>{{else if .CertWarning}}<span class="cert-badge cert-warn">{{.DaysLeft}}d left</span>{{else}}<span class="cert-badge cert-ok">{{.DaysLeft}}d left</span>{{end}}
+              {{else}}—{{end}}</td>
+              <td>{{if .Enabled}}<span class="status status-online"><i></i>enabled</span>{{else}}<span class="status status-disabled"><i></i>disabled</span>{{end}}</td>
+            </tr>
+          </tbody>
+        </table>
+        {{end}}
+        {{else}}
+        <div class="empty-cell-wrapper"><p class="muted">Panel config not found in Nginx — run Nginx scan or check your Nginx setup.</p></div>
+        {{end}}
       </section>
 
+      {{/* ── SECTION B: VPSDeck Managed / Imported Domains ───────────── */}}
       <section class="panel table-panel deployment-history">
-        <div class="panel-heading"><div><h2>Managed routes</h2><p>Only files inside VPSDeck's managed Nginx directories are changed.</p></div></div>
+        <div class="panel-heading"><div><h2>VPSDeck domains</h2><p>Routes managed or imported into VPSDeck. Only files inside VPSDeck's managed Nginx directories are written by VPSDeck.</p></div></div>
+
+        {{/* Add route form */}}
+        <details class="add-route-details">
+          <summary class="add-route-summary">＋ Add managed route</summary>
+          <form method="post" action="/domains" data-domain-route-form class="add-route-form">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <div class="form-grid">
+              <label><span>Hostname</span><input name="hostname" placeholder="app.example.com" required></label>
+              <label><span>Route type</span><select name="target_type" data-domain-target-type><option value="project">Project</option><option value="panel">VPSDeck panel</option></select></label>
+              <label><span>Project</span><select name="project_id" data-domain-project><option value="">Panel route or auto-select later</option>{{range .Data.Projects}}<option value="{{.ID}}" data-port="{{.Port}}">{{.Name}} · {{.Type}}</option>{{end}}</select></label>
+              <label><span>Target port <em>optional</em></span><input name="target_port" data-domain-target-port type="number" min="1" max="65535" placeholder="Auto or existing project port"><small>Project auto-ports use {{.Data.InternalPortRange}}. Panel target is {{.Data.PanelTarget}}.</small></label>
+            </div>
+            <div class="form-actions"><button class="button button-primary" type="submit">Create route</button></div>
+          </form>
+        </details>
+
         <table>
-          <thead><tr><th>Hostname</th><th>Target</th><th>State</th><th>SSL</th><th>Last error</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Hostname</th><th>Target</th><th>State</th><th>SSL / Cert</th><th>Source</th><th>Last error</th><th>Actions</th></tr></thead>
           <tbody>
           {{range .Data.Routes}}
             <tr>
-              <td><strong>{{.Hostname}}</strong><small>{{.TargetType}}</small></td>
+              <td><strong>{{.Hostname}}</strong><small class="type-badge badge-{{.TargetType}}">{{.TargetType}}</small></td>
               <td><code>{{.TargetScheme}}://{{.TargetHost}}:{{.TargetPort}}</code>{{if .ProjectName}}<small>{{.ProjectName}}</small>{{end}}</td>
-              <td>{{if .Enabled}}<span class="status status-online"><i></i>enabled</span>{{else}}<span class="status status-disabled"><i></i>disabled</span>{{end}}{{if .TargetListening}}<small>Target port is listening</small>{{else}}<small class="red-text">Target port is not listening</small>{{end}}</td>
-              <td><span class="status status-unknown"><i></i>{{.SSLStatus}}</span></td>
+              <td>
+                {{if .Enabled}}<span class="status status-online"><i></i>enabled</span>{{else}}<span class="status status-disabled"><i></i>disabled</span>{{end}}
+                {{if .TargetListening}}<small>Target port is listening</small>{{else}}<small class="red-text">Target port is not listening</small>{{end}}
+              </td>
+              <td>
+                <span class="status status-unknown"><i></i>{{.SSLStatus}}</span>
+                {{if .CertExpiry}}<small>exp. {{.CertExpiry.Format "2006-01-02"}}</small>{{end}}
+              </td>
+              <td>
+                {{if eq .SourceType "imported_external"}}
+                  <span class="source-badge source-imported">imported</span>
+                  {{if .SourceConfigPath}}<small class="path-code-sm">{{.SourceConfigPath}}</small>{{end}}
+                {{else}}
+                  <span class="source-badge source-managed">managed</span>
+                {{end}}
+              </td>
               <td>{{if .LastError}}<span class="red-text">{{.LastError}}</span>{{else}}—{{end}}</td>
               <td>
                 <div class="update-actions">
+                  {{if .IsManaged}}
                   <form method="post" action="/domains/{{.ID}}/test">
                     <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
                     <button class="button button-small" type="submit">Test</button>
@@ -58,24 +102,92 @@
                     <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
                     <button class="button button-small button-danger" type="submit">Delete</button>
                   </form>
+                  {{else}}
+                  <form method="post" action="/domains/{{.ID}}/delete" data-confirm="Remove this imported route record? This does NOT modify the original Nginx config.">
+                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                    <button class="button button-small button-danger" type="submit">Remove</button>
+                  </form>
+                  {{end}}
                 </div>
               </td>
             </tr>
           {{else}}
-            <tr><td colspan="6" class="empty-cell">No reverse proxy routes yet.</td></tr>
+            <tr><td colspan="7" class="empty-cell">No VPSDeck domains yet. Import from the scanner below, or add a new managed route above.</td></tr>
           {{end}}
           </tbody>
         </table>
       </section>
 
+      {{/* ── SECTION C: Existing Nginx Routes on this VPS ────────────── */}}
+      <section class="panel table-panel deployment-history">
+        <div class="panel-heading">
+          <div>
+            <h2>Existing Nginx routes on this VPS</h2>
+            <p>Read-only scan of <code>/etc/nginx/sites-available</code> and <code>/etc/nginx/vpsdeck/sites-available</code>. Never modifies any config.</p>
+          </div>
+          <div class="panel-heading-actions">
+            <a href="/domains" class="button button-small">Re-scan</a>
+            {{if .Data.ScanTime}}<span class="muted scan-time">Scanned {{timeago .Data.ScanTime}}</span>{{end}}
+          </div>
+        </div>
+
+        {{if .Data.ScanErrors}}
+        <div class="scan-errors">
+          {{range .Data.ScanErrors}}<p class="muted scan-error-line"><small>⚠ {{.}}</small></p>{{end}}
+        </div>
+        {{end}}
+
+        {{if .Data.ScannedRoutes}}
+        <table>
+          <thead><tr><th>Hostname</th><th>Config file</th><th>Target</th><th>Type</th><th>SSL / Cert</th><th>State</th><th>VPSDeck</th><th></th></tr></thead>
+          <tbody>
+          {{range .Data.ScannedRoutes}}
+            <tr class="{{if .AlreadyImported}}row-imported{{end}}">
+              <td><strong>{{if .Hostname}}{{.Hostname}}{{else}}<em class="muted">port-only</em>{{end}}</strong></td>
+              <td><code class="path-code">{{.ConfigFile}}</code></td>
+              <td><code>{{.ProxyPass}}</code></td>
+              <td><span class="type-badge badge-{{.TargetType}}">{{.TargetType}}</span></td>
+              <td>
+                {{if .SSLEnabled}}<span class="status status-online"><i></i>SSL</span>{{else}}<span class="status status-disabled"><i></i>plain</span>{{end}}
+                {{if .CertExpiry}}
+                  {{if .CertExpired}}<span class="cert-badge cert-expired">Expired</span>{{else if .CertWarning}}<span class="cert-badge cert-warn">{{.DaysLeft}}d</span>{{else}}<span class="cert-badge cert-ok">{{.DaysLeft}}d</span>{{end}}
+                {{end}}
+              </td>
+              <td>{{if .Enabled}}<span class="status status-online"><i></i>enabled</span>{{else}}<span class="status status-disabled"><i></i>disabled</span>{{end}}</td>
+              <td>
+                {{if .AlreadyImported}}<span class="source-badge source-imported">tracked</span>{{else}}<span class="muted">—</span>{{end}}
+              </td>
+              <td>
+                {{if and (not .AlreadyImported) .Hostname}}
+                <form method="post" action="/domains/import">
+                  <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                  <input type="hidden" name="hostname" value="{{.Hostname}}">
+                  <input type="hidden" name="source_config_path" value="{{.ConfigFile}}">
+                  <button class="button button-small" type="submit">Import</button>
+                </form>
+                {{end}}
+              </td>
+            </tr>
+          {{else}}
+            <tr><td colspan="8" class="empty-cell">No Nginx proxy routes found. Check that Nginx is running and configs exist in <code>/etc/nginx/sites-available</code>.</td></tr>
+          {{end}}
+          </tbody>
+        </table>
+        {{else}}
+        <div class="empty-cell-wrapper"><p class="muted">No external Nginx routes found{{if .Data.ScanErrors}} (scan had errors — see above){{end}}.</p></div>
+        {{end}}
+      </section>
+
+      {{/* Nginx paths info */}}
       <section class="panel deployment-history">
-        <div class="panel-heading"><div><h2>Managed Nginx paths</h2><p>VPSDeck writes only these paths for reverse proxy routing.</p></div></div>
+        <div class="panel-heading"><div><h2>VPSDeck Nginx paths</h2><p>VPSDeck writes only these paths for reverse proxy routing.</p></div></div>
         <dl class="detail-list">
           <div><dt>sites-available</dt><dd><code>{{.Data.NginxAvailable}}</code></dd></div>
           <div><dt>sites-enabled</dt><dd><code>{{.Data.NginxEnabled}}</code></dd></div>
           <div><dt>bridge include</dt><dd><code>{{.Data.NginxBridge}}</code></dd></div>
         </dl>
       </section>
+
     </section>
   </main>
 </body>

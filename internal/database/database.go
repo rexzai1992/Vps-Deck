@@ -53,18 +53,25 @@ type ProjectSource struct {
 }
 
 type ProxyRoute struct {
-	ID           int64
-	Hostname     string
-	ProjectID    sql.NullInt64
-	TargetType   string
-	TargetHost   string
-	TargetPort   int
-	TargetScheme string
-	SSLStatus    string
-	Enabled      bool
-	LastError    string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID               int64
+	Hostname         string
+	ProjectID        sql.NullInt64
+	TargetType       string
+	TargetHost       string
+	TargetPort       int
+	TargetScheme     string
+	SSLStatus        string
+	Enabled          bool
+	LastError        string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	// Fields added in migration 7 (Domains scanner).
+	SourceType       string     // "managed" or "imported_external"
+	SourceConfigPath string     // path to original nginx config file
+	IsManaged        bool       // true when VPSDeck owns the nginx config
+	CertPath         string     // ssl_certificate file path
+	CertExpiry       *time.Time // nullable
+	ImportedAt       *time.Time // nullable; set when source_type='imported_external'
 }
 
 type GitHubAccount struct {
@@ -306,6 +313,14 @@ func (db *DB) Migrate(ctx context.Context) error {
 		);
 
 		CREATE INDEX idx_doctor_runs_started ON doctor_runs(started_at DESC);
+		`,
+		`
+		ALTER TABLE proxy_routes ADD COLUMN source_type TEXT NOT NULL DEFAULT 'managed';
+		ALTER TABLE proxy_routes ADD COLUMN source_config_path TEXT NOT NULL DEFAULT '';
+		ALTER TABLE proxy_routes ADD COLUMN is_managed BOOLEAN NOT NULL DEFAULT 1;
+		ALTER TABLE proxy_routes ADD COLUMN cert_path TEXT NOT NULL DEFAULT '';
+		ALTER TABLE proxy_routes ADD COLUMN cert_expiry DATETIME;
+		ALTER TABLE proxy_routes ADD COLUMN imported_at DATETIME;
 		`,
 	}
 
@@ -571,23 +586,36 @@ func (db *DB) CreateProxyRoute(ctx context.Context, route ProxyRoute) (int64, er
 
 func (db *DB) ProxyRouteByID(ctx context.Context, id int64) (ProxyRoute, error) {
 	var route ProxyRoute
+	var certExpiry, importedAt sql.NullTime
 	err := db.QueryRowContext(ctx, `
 		SELECT id, hostname, project_id, target_type, target_host, target_port,
-		       target_scheme, ssl_status, enabled, last_error, created_at, updated_at
+		       target_scheme, ssl_status, enabled, last_error, created_at, updated_at,
+		       source_type, source_config_path, is_managed, cert_path, cert_expiry, imported_at
 		FROM proxy_routes
 		WHERE id = ?
 	`, id).Scan(
 		&route.ID, &route.Hostname, &route.ProjectID, &route.TargetType, &route.TargetHost,
 		&route.TargetPort, &route.TargetScheme, &route.SSLStatus, &route.Enabled,
 		&route.LastError, &route.CreatedAt, &route.UpdatedAt,
+		&route.SourceType, &route.SourceConfigPath, &route.IsManaged, &route.CertPath,
+		&certExpiry, &importedAt,
 	)
+	if certExpiry.Valid {
+		t := certExpiry.Time
+		route.CertExpiry = &t
+	}
+	if importedAt.Valid {
+		t := importedAt.Time
+		route.ImportedAt = &t
+	}
 	return route, err
 }
 
 func (db *DB) ListProxyRoutes(ctx context.Context) ([]ProxyRoute, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT id, hostname, project_id, target_type, target_host, target_port,
-		       target_scheme, ssl_status, enabled, last_error, created_at, updated_at
+		       target_scheme, ssl_status, enabled, last_error, created_at, updated_at,
+		       source_type, source_config_path, is_managed, cert_path, cert_expiry, imported_at
 		FROM proxy_routes
 		ORDER BY hostname
 	`)
@@ -599,17 +627,123 @@ func (db *DB) ListProxyRoutes(ctx context.Context) ([]ProxyRoute, error) {
 	var routes []ProxyRoute
 	for rows.Next() {
 		var route ProxyRoute
+		var certExpiry, importedAt sql.NullTime
 		if err := rows.Scan(
 			&route.ID, &route.Hostname, &route.ProjectID, &route.TargetType,
 			&route.TargetHost, &route.TargetPort, &route.TargetScheme,
 			&route.SSLStatus, &route.Enabled, &route.LastError,
 			&route.CreatedAt, &route.UpdatedAt,
+			&route.SourceType, &route.SourceConfigPath, &route.IsManaged, &route.CertPath,
+			&certExpiry, &importedAt,
 		); err != nil {
 			return nil, err
+		}
+		if certExpiry.Valid {
+			t := certExpiry.Time
+			route.CertExpiry = &t
+		}
+		if importedAt.Valid {
+			t := importedAt.Time
+			route.ImportedAt = &t
 		}
 		routes = append(routes, route)
 	}
 	return routes, rows.Err()
+}
+
+// ListProxyRoutesByProjectID returns all proxy routes linked to a project.
+func (db *DB) ListProxyRoutesByProjectID(ctx context.Context, projectID int64) ([]ProxyRoute, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, hostname, project_id, target_type, target_host, target_port,
+		       target_scheme, ssl_status, enabled, last_error, created_at, updated_at,
+		       source_type, source_config_path, is_managed, cert_path, cert_expiry, imported_at
+		FROM proxy_routes
+		WHERE project_id = ?
+		ORDER BY hostname
+	`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var routes []ProxyRoute
+	for rows.Next() {
+		var route ProxyRoute
+		var certExpiry, importedAt sql.NullTime
+		if err := rows.Scan(
+			&route.ID, &route.Hostname, &route.ProjectID, &route.TargetType,
+			&route.TargetHost, &route.TargetPort, &route.TargetScheme,
+			&route.SSLStatus, &route.Enabled, &route.LastError,
+			&route.CreatedAt, &route.UpdatedAt,
+			&route.SourceType, &route.SourceConfigPath, &route.IsManaged, &route.CertPath,
+			&certExpiry, &importedAt,
+		); err != nil {
+			return nil, err
+		}
+		if certExpiry.Valid {
+			t := certExpiry.Time
+			route.CertExpiry = &t
+		}
+		if importedAt.Valid {
+			t := importedAt.Time
+			route.ImportedAt = &t
+		}
+		routes = append(routes, route)
+	}
+	return routes, rows.Err()
+}
+
+// ProxyRouteByHostname returns the proxy route with the given hostname, or
+// sql.ErrNoRows if it does not exist.
+func (db *DB) ProxyRouteByHostname(ctx context.Context, hostname string) (ProxyRoute, error) {
+	var route ProxyRoute
+	var certExpiry, importedAt sql.NullTime
+	err := db.QueryRowContext(ctx, `
+		SELECT id, hostname, project_id, target_type, target_host, target_port,
+		       target_scheme, ssl_status, enabled, last_error, created_at, updated_at,
+		       source_type, source_config_path, is_managed, cert_path, cert_expiry, imported_at
+		FROM proxy_routes
+		WHERE hostname = ?
+	`, hostname).Scan(
+		&route.ID, &route.Hostname, &route.ProjectID, &route.TargetType, &route.TargetHost,
+		&route.TargetPort, &route.TargetScheme, &route.SSLStatus, &route.Enabled,
+		&route.LastError, &route.CreatedAt, &route.UpdatedAt,
+		&route.SourceType, &route.SourceConfigPath, &route.IsManaged, &route.CertPath,
+		&certExpiry, &importedAt,
+	)
+	if certExpiry.Valid {
+		t := certExpiry.Time
+		route.CertExpiry = &t
+	}
+	if importedAt.Valid {
+		t := importedAt.Time
+		route.ImportedAt = &t
+	}
+	return route, err
+}
+
+// ImportProxyRoute inserts a proxy route record for an externally-managed
+// nginx config. Never modifies nginx configs. Sets is_managed=false,
+// source_type='imported_external'.
+func (db *DB) ImportProxyRoute(ctx context.Context, route ProxyRoute) (int64, error) {
+	var certExpiry any
+	if route.CertExpiry != nil {
+		certExpiry = *route.CertExpiry
+	}
+	result, err := db.ExecContext(ctx, `
+		INSERT INTO proxy_routes(
+			hostname, target_type, target_host, target_port, target_scheme,
+			ssl_status, enabled, last_error,
+			source_type, source_config_path, is_managed, cert_path, cert_expiry, imported_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+	`,
+		route.Hostname, route.TargetType, route.TargetHost, route.TargetPort, route.TargetScheme,
+		route.SSLStatus, true, "",
+		"imported_external", route.SourceConfigPath, false, route.CertPath, certExpiry,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
 }
 
 func (db *DB) SetProxyRouteLastError(ctx context.Context, id int64, lastError string) error {
