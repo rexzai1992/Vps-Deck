@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -59,6 +60,7 @@ type Server struct {
 	logger    *slog.Logger
 	templates *template.Template
 	demoMode  bool
+	vpsIP     string // outbound public IP, detected once at startup
 }
 
 type PageData struct {
@@ -128,7 +130,7 @@ type ProjectPageData struct {
 	Deployments        []database.Deployment
 	DeploymentsEnabled bool
 	Routes             []database.ProxyRoute // nginx proxy routes linked to this project
-	BaseURL            string                // fallback access URL when no domain route exists
+	VPSIP              string                // VPS public IP for fallback access display
 }
 
 type NewProjectPageData struct {
@@ -246,6 +248,7 @@ func New(cfg config.Config, db *database.DB, authService *auth.Service, logger *
 		logger:    logger,
 		templates: templates,
 		demoMode:  cfg.App.DemoMode,
+		vpsIP:     detectOutboundIP(),
 	}
 
 	server.deploy.SetTokenProvider(func(ctx context.Context) (string, error) {
@@ -726,7 +729,7 @@ func (s *Server) projectPage(c *gin.Context) {
 	data := ProjectPageData{
 		Project:            project,
 		DeploymentsEnabled: s.deploy.Enabled(),
-		BaseURL:            s.cfg.App.BaseURL,
+		VPSIP:              s.vpsIP,
 	}
 	if source, sourceErr := s.deploy.Source(c.Request.Context(), project.ID); sourceErr == nil {
 		data.Source = source
@@ -1416,4 +1419,15 @@ func isSecretKey(key string) bool {
 		}
 	}
 	return false
+}
+
+// detectOutboundIP returns the local IP the OS would use to reach the internet.
+// On a VPS this is the public IP. Falls back to empty string on error.
+func detectOutboundIP() string {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+	return conn.LocalAddr().(*net.UDPAddr).IP.String()
 }

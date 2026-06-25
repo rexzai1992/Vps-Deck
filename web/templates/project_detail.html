@@ -38,7 +38,7 @@
                 {{end}}
               {{else if .Data.Project.Port}}
                 <span class="muted">No domain — direct access:</span><br>
-                <code>{{.Data.BaseURL}}:{{.Data.Project.Port}}</code>
+                <code>{{if .Data.VPSIP}}http://{{.Data.VPSIP}}{{else}}http://&lt;vps-ip&gt;{{end}}:{{.Data.Project.Port}}</code>
                 <a class="button button-small" href="/domains" style="margin-left:8px">Add domain</a>
               {{else}}Not connected{{end}}
             </dd></div>
