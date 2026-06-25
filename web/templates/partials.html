@@ -13,6 +13,7 @@
     <div class="nav-label">SYSTEM</div>
     <a class="{{if eq .Active "ports"}}active{{end}}" href="/network/ports"><span>⇄</span>Ports</a>
     <a class="{{if eq .Active "ollama"}}active{{end}}" href="/ollama"><span>◉</span>Ollama</a>
+    <a class="{{if eq .Active "doctor"}}active{{end}}" href="/doctor"><span>✦</span>VPS Doctor</a>
     <a class="{{if eq .Active "updates"}}active{{end}}" href="/system/updates"><span>⟲</span>Updates</a>
     <a class="{{if eq .Active "audit"}}active{{end}}" href="/audit"><span>✓</span>Audit log</a>
     {{if .AdvancedEnabled}}

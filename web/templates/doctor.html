@@ -1,0 +1,103 @@
+{{define "doctor.html"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}} · VPSDeck</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script defer src="/static/app.js"></script>
+</head>
+<body>
+  {{template "sidebar" .}}
+  <main class="main">
+    {{template "topbar" .}}
+    <section class="content">
+      {{template "alerts" .}}
+
+      <div class="page-heading">
+        <div>
+          <p class="eyebrow">DIAGNOSTICS</p>
+          <h1>VPS Doctor</h1>
+          <p class="muted">Health checks for system resources, services, Nginx, Docker, and project endpoints.</p>
+        </div>
+        <form method="post" action="/doctor/run">
+          <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+          <button type="submit" class="button">Run Full Check</button>
+        </form>
+      </div>
+
+      {{if .Data.HasRun}}
+
+      {{with .Data.Run}}
+      <div class="doctor-summary">
+        <div class="doctor-summary-counts">
+          <span class="ds-count ok">{{.OKCount}} OK</span>
+          {{if gt .WarningCount 0}}<span class="ds-count warn">{{.WarningCount}} Warning</span>{{end}}
+          {{if gt .FailedCount 0}}<span class="ds-count fail">{{.FailedCount}} Failed</span>{{end}}
+          {{if gt .SkippedCount 0}}<span class="ds-count skip">{{.SkippedCount}} Skipped</span>{{end}}
+        </div>
+        <span class="muted ds-meta">Last run {{timeago .StartedAt}} &middot; {{.DurationMS}}ms</span>
+      </div>
+      {{end}}
+
+      {{range .Data.Categories}}
+      <div class="doctor-category">
+        <h2 class="doctor-cat-title">{{.Name}}</h2>
+        <div class="doctor-checks">
+          {{range .Results}}
+          <div class="doctor-check check-{{.Status}}">
+            <div class="dc-left">
+              <span class="dc-badge badge-{{.Status}}">{{.Status}}</span>
+              <div class="dc-info">
+                <strong>{{.Name}}</strong>
+                <span class="dc-message">{{.Message}}</span>
+                {{if .Detail}}<code class="dc-detail">{{.Detail}}</code>{{end}}
+              </div>
+            </div>
+            <div class="dc-right">
+              {{if eq .Status "failed"}}
+                {{if eq .CheckID "service.nginx"}}
+                <form method="post" action="/doctor/repair" class="inline-form">
+                  <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                  <input type="hidden" name="type" value="nginx_restart">
+                  <button type="submit" class="button button-sm button-warn">Restart Nginx</button>
+                </form>
+                {{end}}
+                {{if eq .CheckID "nginx.config"}}
+                <form method="post" action="/doctor/repair" class="inline-form">
+                  <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                  <input type="hidden" name="type" value="nginx_reload">
+                  <button type="submit" class="button button-sm button-warn">Reload Nginx</button>
+                </form>
+                {{end}}
+                {{if eq .CheckID "service.docker"}}
+                <form method="post" action="/doctor/repair" class="inline-form">
+                  <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                  <input type="hidden" name="type" value="docker_restart">
+                  <button type="submit" class="button button-sm button-warn">Restart Docker</button>
+                </form>
+                {{end}}
+              {{end}}
+            </div>
+          </div>
+          {{end}}
+        </div>
+      </div>
+      {{end}}
+
+      {{else}}
+
+      <div class="empty-state">
+        <p class="eyebrow">NO DATA YET</p>
+        <h2>Run your first health check</h2>
+        <p class="muted">Click <strong>Run Full Check</strong> above to inspect system resources, services, Nginx, Docker, and project endpoints.</p>
+      </div>
+
+      {{end}}
+
+    </section>
+  </main>
+</body>
+</html>
+{{end}}

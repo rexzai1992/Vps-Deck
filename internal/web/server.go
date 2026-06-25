@@ -24,6 +24,7 @@ import (
 	"github.com/vpsdeck/vpsdeck/internal/demo"
 	"github.com/vpsdeck/vpsdeck/internal/deployments"
 	dockerdiscovery "github.com/vpsdeck/vpsdeck/internal/docker"
+	"github.com/vpsdeck/vpsdeck/internal/doctor"
 	"github.com/vpsdeck/vpsdeck/internal/domains"
 	projectfiles "github.com/vpsdeck/vpsdeck/internal/files"
 	githubintegration "github.com/vpsdeck/vpsdeck/internal/github"
@@ -53,6 +54,7 @@ type Server struct {
 	docker    *dockerdiscovery.Discovery
 	update    *selfupdate.Service
 	github    *githubintegration.Service
+	doctor    *doctor.Service
 	limiter   *auth.RateLimiter
 	logger    *slog.Logger
 	templates *template.Template
@@ -237,6 +239,7 @@ func New(cfg config.Config, db *database.DB, authService *auth.Service, logger *
 			30*time.Second,
 			time.Duration(cfg.Updates.CheckIntervalMinutes)*time.Minute,
 		),
+		doctor:    doctor.NewService(db, &doctor.RealRunner{}, cfg.App.Port),
 		limiter:   auth.NewRateLimiter(cfg.Security.LoginRateLimitPerMinute, time.Minute),
 		logger:    logger,
 		templates: templates,
@@ -287,6 +290,9 @@ func New(cfg config.Config, db *database.DB, authService *auth.Service, logger *
 	protected.GET("/projects/:id/env", server.envPage)
 	protected.POST("/projects/:id/env", server.limitBody(4<<20), server.csrfRequired(), server.saveEnv)
 	protected.GET("/audit", server.auditPage)
+	protected.GET("/doctor", server.doctorPage)
+	protected.POST("/doctor/run", server.limitBody(1<<20), server.csrfRequired(), server.runDoctor)
+	protected.POST("/doctor/repair", server.limitBody(1<<20), server.csrfRequired(), server.repairDoctor)
 	protected.GET("/domains", server.domainsPage)
 	protected.POST("/domains", server.limitBody(1<<20), server.csrfRequired(), server.createDomainRoute)
 	protected.POST("/domains/:id/test", server.limitBody(1<<20), server.csrfRequired(), server.testDomainRoute)

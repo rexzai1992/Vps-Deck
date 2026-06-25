@@ -280,6 +280,33 @@ func (db *DB) Migrate(ctx context.Context) error {
 		FROM projects
 		WHERE domain <> '' AND port > 0;
 		`,
+		`
+		CREATE TABLE doctor_runs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			started_at DATETIME NOT NULL,
+			duration_ms INTEGER NOT NULL DEFAULT 0,
+			total INTEGER NOT NULL DEFAULT 0,
+			ok_count INTEGER NOT NULL DEFAULT 0,
+			warning_count INTEGER NOT NULL DEFAULT 0,
+			failed_count INTEGER NOT NULL DEFAULT 0,
+			skipped_count INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE TABLE doctor_results (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			run_id INTEGER NOT NULL,
+			check_id TEXT NOT NULL,
+			name TEXT NOT NULL,
+			category TEXT NOT NULL,
+			status TEXT NOT NULL,
+			message TEXT NOT NULL DEFAULT '',
+			detail TEXT NOT NULL DEFAULT '',
+			FOREIGN KEY(run_id) REFERENCES doctor_runs(id) ON DELETE CASCADE
+		);
+
+		CREATE INDEX idx_doctor_runs_started ON doctor_runs(started_at DESC);
+		`,
 	}
 
 	for i, statement := range migrations {
@@ -831,4 +858,111 @@ func (db *DB) ListAudit(ctx context.Context, limit int) ([]AuditEntry, error) {
 
 func IsNotFound(err error) bool {
 	return errors.Is(err, sql.ErrNoRows)
+}
+
+// ─── Doctor run storage ───────────────────────────────────────────────────────
+
+type DoctorRun struct {
+	ID           int64
+	StartedAt    time.Time
+	DurationMS   int64
+	Total        int
+	OKCount      int
+	WarningCount int
+	FailedCount  int
+	SkippedCount int
+	CreatedAt    time.Time
+}
+
+type DoctorResult struct {
+	ID       int64
+	RunID    int64
+	CheckID  string
+	Name     string
+	Category string
+	Status   string
+	Message  string
+	Detail   string
+}
+
+func (db *DB) SaveDoctorRun(ctx context.Context, run DoctorRun, results []DoctorResult) (int64, error) {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	res, err := tx.ExecContext(ctx, `
+		INSERT INTO doctor_runs(started_at, duration_ms, total, ok_count, warning_count, failed_count, skipped_count)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, run.StartedAt, run.DurationMS, run.Total, run.OKCount, run.WarningCount, run.FailedCount, run.SkippedCount)
+	if err != nil {
+		tx.Rollback()
+		return 0, err
+	}
+	runID, err := res.LastInsertId()
+	if err != nil {
+		tx.Rollback()
+		return 0, err
+	}
+	for _, r := range results {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO doctor_results(run_id, check_id, name, category, status, message, detail)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+		`, runID, r.CheckID, r.Name, r.Category, r.Status, r.Message, r.Detail); err != nil {
+			tx.Rollback()
+			return 0, err
+		}
+	}
+	return runID, tx.Commit()
+}
+
+func (db *DB) LastDoctorRun(ctx context.Context) (DoctorRun, []DoctorResult, error) {
+	var run DoctorRun
+	err := db.QueryRowContext(ctx, `
+		SELECT id, started_at, duration_ms, total, ok_count, warning_count, failed_count, skipped_count, created_at
+		FROM doctor_runs ORDER BY started_at DESC LIMIT 1
+	`).Scan(&run.ID, &run.StartedAt, &run.DurationMS, &run.Total,
+		&run.OKCount, &run.WarningCount, &run.FailedCount, &run.SkippedCount, &run.CreatedAt)
+	if err != nil {
+		return DoctorRun{}, nil, err
+	}
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, run_id, check_id, name, category, status, message, detail
+		FROM doctor_results WHERE run_id = ? ORDER BY id ASC
+	`, run.ID)
+	if err != nil {
+		return run, nil, err
+	}
+	defer rows.Close()
+	var results []DoctorResult
+	for rows.Next() {
+		var r DoctorResult
+		if err := rows.Scan(&r.ID, &r.RunID, &r.CheckID, &r.Name, &r.Category, &r.Status, &r.Message, &r.Detail); err != nil {
+			return run, nil, err
+		}
+		results = append(results, r)
+	}
+	return run, results, rows.Err()
+}
+
+func (db *DB) ListDoctorRuns(ctx context.Context, limit int) ([]DoctorRun, error) {
+	if limit < 1 || limit > 50 {
+		limit = 10
+	}
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, started_at, duration_ms, total, ok_count, warning_count, failed_count, skipped_count, created_at
+		FROM doctor_runs ORDER BY started_at DESC LIMIT ?
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var runs []DoctorRun
+	for rows.Next() {
+		var r DoctorRun
+		if err := rows.Scan(&r.ID, &r.StartedAt, &r.DurationMS, &r.Total, &r.OKCount, &r.WarningCount, &r.FailedCount, &r.SkippedCount, &r.CreatedAt); err != nil {
+			return nil, err
+		}
+		runs = append(runs, r)
+	}
+	return runs, rows.Err()
 }
