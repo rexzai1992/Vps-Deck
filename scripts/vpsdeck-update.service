@@ -8,5 +8,9 @@ Type=oneshot
 # Runs as root: pulls the branch, rebuilds, restarts VPSDeck, and rolls back on
 # failure. update.sh removes the request flag and writes progress to the status
 # file the panel reads.
+# HOME and GOPATH must be explicit — systemd does not inherit the login shell
+# environment, so Go cannot locate the module cache without these.
+Environment=HOME=/root
+Environment=GOPATH=/root/go
 ExecStart=/opt/vpsdeck/src/scripts/update.sh
 TimeoutStartSec=900
