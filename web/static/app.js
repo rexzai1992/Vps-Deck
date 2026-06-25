@@ -1307,6 +1307,43 @@ const setupOllamaTools = () => {
   window.setInterval(pollPulls, 2000);
 };
 
+const setupDomainRouteForm = () => {
+  const form = document.querySelector("[data-domain-route-form]");
+  if (!form) return;
+
+  const targetType = form.querySelector("[data-domain-target-type]");
+  const project = form.querySelector("[data-domain-project]");
+  const port = form.querySelector("[data-domain-target-port]");
+  if (!targetType || !project || !port) return;
+
+  const sync = () => {
+    const projectMode = targetType.value === "project";
+    project.disabled = !projectMode;
+    if (!projectMode) {
+      project.value = "";
+      port.value = "";
+      port.dataset.prefilledPort = "";
+      port.placeholder = "Panel uses configured bind port";
+      return;
+    }
+
+    port.placeholder = "Auto or existing project port";
+    const selected = project.selectedOptions[0];
+    const suggested = selected?.dataset.port || "";
+    if (suggested && suggested !== "0" && (!port.value || port.value === port.dataset.prefilledPort)) {
+      port.value = suggested;
+      port.dataset.prefilledPort = suggested;
+    }
+  };
+
+  targetType.addEventListener("change", sync);
+  project.addEventListener("change", sync);
+  port.addEventListener("input", () => {
+    if (port.value !== port.dataset.prefilledPort) port.dataset.prefilledPort = "";
+  });
+  sync();
+};
+
 document.addEventListener("DOMContentLoaded", () => {
   const list = document.querySelector("[data-env-list]");
   const template = document.querySelector("[data-env-template]");
@@ -1319,4 +1356,5 @@ document.addEventListener("DOMContentLoaded", () => {
   setupUpdatePolling();
   setupGitHubPicker();
   setupOllamaTools();
+  setupDomainRouteForm();
 });

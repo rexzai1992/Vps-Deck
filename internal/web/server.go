@@ -24,6 +24,7 @@ import (
 	"github.com/vpsdeck/vpsdeck/internal/demo"
 	"github.com/vpsdeck/vpsdeck/internal/deployments"
 	dockerdiscovery "github.com/vpsdeck/vpsdeck/internal/docker"
+	"github.com/vpsdeck/vpsdeck/internal/domains"
 	projectfiles "github.com/vpsdeck/vpsdeck/internal/files"
 	githubintegration "github.com/vpsdeck/vpsdeck/internal/github"
 	"github.com/vpsdeck/vpsdeck/internal/monitoring"
@@ -46,6 +47,7 @@ type Server struct {
 	files     *projectfiles.Service
 	dashboard *dashboard.Service
 	deploy    *deployments.Service
+	domains   *domains.Service
 	ports     *monitoring.PortService
 	ollama    *monitoring.OllamaService
 	docker    *dockerdiscovery.Discovery
@@ -206,6 +208,7 @@ func New(cfg config.Config, db *database.DB, authService *auth.Service, logger *
 			cfg.Docker.Command,
 			time.Duration(cfg.Deployments.TimeoutSeconds)*time.Second,
 		),
+		domains: domains.NewService(db, cfg.ReverseProxy),
 		ports: monitoring.NewPortService(
 			db,
 			cfg.Monitoring.Ports.Enabled,
@@ -284,6 +287,12 @@ func New(cfg config.Config, db *database.DB, authService *auth.Service, logger *
 	protected.GET("/projects/:id/env", server.envPage)
 	protected.POST("/projects/:id/env", server.limitBody(4<<20), server.csrfRequired(), server.saveEnv)
 	protected.GET("/audit", server.auditPage)
+	protected.GET("/domains", server.domainsPage)
+	protected.POST("/domains", server.limitBody(1<<20), server.csrfRequired(), server.createDomainRoute)
+	protected.POST("/domains/:id/test", server.limitBody(1<<20), server.csrfRequired(), server.testDomainRoute)
+	protected.POST("/domains/:id/apply", server.limitBody(1<<20), server.csrfRequired(), server.applyDomainRoute)
+	protected.POST("/domains/:id/disable", server.limitBody(1<<20), server.csrfRequired(), server.disableDomainRoute)
+	protected.POST("/domains/:id/delete", server.limitBody(1<<20), server.csrfRequired(), server.deleteDomainRoute)
 	protected.GET("/network/ports", server.portsPage)
 	protected.GET("/ollama", server.ollamaPage)
 	protected.GET("/system/updates", server.updatesPage)
@@ -1204,7 +1213,7 @@ func (s *Server) securityHeaders() gin.HandlerFunc {
 		c.Header("X-Frame-Options", "DENY")
 		c.Header("Referrer-Policy", "same-origin")
 		c.Header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-		c.Header("Content-Security-Policy", "default-src 'self'; style-src 'self'; img-src 'self' data:; script-src 'self'; connect-src 'self'")
+		c.Header("Content-Security-Policy", "default-src 'self'; style-src 'self'; img-src 'self' data:; script-src 'self' https://static.cloudflareinsights.com; connect-src 'self' https://cloudflareinsights.com")
 		c.Header("Cache-Control", "no-store")
 		c.Next()
 	}

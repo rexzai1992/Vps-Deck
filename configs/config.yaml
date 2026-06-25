@@ -24,6 +24,17 @@ deployments:
   git_command: git
   timeout_seconds: 300
 
+reverse_proxy:
+  panel_bind_host: 127.0.0.1
+  panel_bind_port: 8080
+  internal_port_start: 31000
+  internal_port_end: 31999
+  nginx_sites_available: /etc/nginx/deploynest/sites-available
+  nginx_sites_enabled: /etc/nginx/deploynest/sites-enabled
+  nginx_bridge_include: /etc/nginx/sites-enabled/vpsdeck-managed.conf
+  nginx_command: nginx
+  systemctl_command: systemctl
+
 updates:
   enabled: true
   source_dir: .

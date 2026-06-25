@@ -1,6 +1,6 @@
 # Installing VPSDeck on Ubuntu
 
-The production installer keeps VPSDeck private on `127.0.0.1:8080` and publishes it through an existing Nginx server. It does not replace other Nginx sites.
+The production installer keeps VPSDeck private on `127.0.0.1:7788` by default, or the next free localhost port, and publishes it through an existing Nginx server. It does not replace other Nginx sites.
 
 ## Requirements
 
@@ -52,7 +52,7 @@ VPSDeck uses secure cookies in production, so sign-in should be done through the
 sudo systemctl status vpsdeck
 sudo systemctl restart vpsdeck
 sudo journalctl -u vpsdeck -f
-curl http://127.0.0.1:8080/healthz
+curl http://127.0.0.1:7788/healthz
 ```
 
 The important paths are:
@@ -64,6 +64,33 @@ The important paths are:
 /var/backups/vpsdeck            binary and file backups
 /opt/vpsdeck/src                installed source checkout
 ```
+
+## Reverse proxy manager
+
+Nginx is the only public entrypoint for normal web traffic on ports 80 and 443. VPSDeck and registered projects should listen on localhost/internal ports, then the **Domains** page creates managed Nginx reverse proxy routes for public hostnames.
+
+The installer creates one bridge file that Nginx already reads:
+
+```text
+/etc/nginx/sites-enabled/vpsdeck-managed.conf
+```
+
+That bridge includes only VPSDeck's managed route directory:
+
+```text
+include /etc/nginx/deploynest/sites-enabled/*.conf;
+```
+
+Generated route files live here:
+
+```text
+/etc/nginx/deploynest/sites-available
+/etc/nginx/deploynest/sites-enabled
+```
+
+VPSDeck does not edit `/etc/nginx/sites-enabled/default` or unrelated user/application configs. Every route change writes a candidate config, updates the managed symlink, runs `nginx -t`, and reloads Nginx only after the test passes. If the test fails, the candidate file/symlink is rolled back and the error is stored on the route.
+
+Project routes prefer the internal port pool `31000-31999` and skip ports already assigned to projects, assigned to proxy routes, occupied on localhost, or used by the panel. A **Target port is not listening** warning means Nginx may be configured correctly, but the app behind that hostname is not currently accepting connections on its target localhost port.
 
 ## Update and rollback
 

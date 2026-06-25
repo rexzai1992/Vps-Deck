@@ -656,10 +656,15 @@ Inspection must be read-only unless the user authorizes installation or system c
 
 ## 16. Current Working State
 
-Last updated: **2026-06-23**
+Last updated: **2026-06-25**
 
 Completed:
 
+- [x] Added the missing **Reverse Proxy Manager**. New `internal/domains` service validates hostnames/targets, allocates internal project ports from the configured pool, renders managed Nginx configs, tests with `nginx -t`, reloads only after a passing test, rolls candidate files/symlinks back on failure, disables routes by removing only the managed enabled symlink, and deletes only managed route files. Migration v5 adds `proxy_routes` and backfills routes from existing `projects.domain` + `projects.port` when present.
+- [x] Enabled the **Domains** nav and `/domains` page. Authenticated admins can create panel/project routes, see target host/port, enabled state, SSL status, last error, and target-port listening warnings, then Test, Apply, Disable, or Delete routes. State-changing routes are CSRF-protected and audited (`proxy_route_create`, `proxy_route_test`, `proxy_route_apply`, `proxy_route_disable`, `proxy_route_delete`, plus started events for Nginx actions). The route form auto-fills a selected project's existing port when available.
+- [x] Updated reverse-proxy config and installer flow. `reverse_proxy` config now tracks the panel bind target, project port pool, managed Nginx available/enabled dirs, bridge include path, and command names. Fresh production installs prefer `127.0.0.1:7788` or the next free localhost port, write the panel Nginx route into `/etc/nginx/deploynest`, create `/etc/nginx/sites-enabled/vpsdeck-managed.conf`, and roll back generated config if `nginx -t` fails. Existing production configs with `0.0.0.0` are normalized to localhost at runtime.
+- [x] Updated `docs/INSTALL.md` with the reverse proxy architecture, managed Nginx paths, bridge include, route lifecycle, rollback behavior, port pool, and target-not-listening troubleshooting. Verified with `bash -n scripts/install.sh scripts/uninstall.sh`, `node --check web/static/app.js`, focused package tests, and `go test ./...`.
+- [x] Fixed the `/ollama` UI: removed a duplicated metrics-grid wrapper, rebuilt the page into metrics, model test, model pull, model lists, and API reference sections, tightened desktop spacing, fixed mobile one-column wrapping, and verified desktop/mobile screenshots.
 - [x] Rebuilt the project file manager as a Windows Explorer–style interface backed by a JSON API. Backend `internal/files` gained `Move`, `Copy` (recursive), `Rename`, `DeleteRecursive`, `NewFile`, and `ZipFolder`, all reusing the existing symlink/traversal containment helpers, with `uniqueTarget` auto-rename so nothing is ever overwritten and a guard against moving/copying a folder into itself or a descendant.
 - [x] Added authenticated JSON endpoints under `/api/projects/:id/files` (list, move, copy, rename, delete, new-file, new-folder, multi-file upload) plus `GET /projects/:id/files/download-zip`. Each mutation is CSRF-protected (X-CSRF-Token header from the readable csrf cookie) and audited (`file_move`, `file_copy`, `file_rename`, `file_delete`, `file_new`, `folder_create`, `file_upload`). Handlers live in `internal/web/files_api.go`.
 - [x] Rebuilt `web/templates/files.html` + `app.js` + `app.css` into a live explorer: click/Ctrl/Shift multi-select, right-click context menu, drag-and-drop move (Ctrl/Alt = copy) onto folders and breadcrumbs, drag-from-OS multi-upload overlay, inline rename (F2), keyboard shortcuts (Del, Ctrl+A/C/X/V, Enter, Backspace), Details/Icons view toggle (persisted), and toast notifications. A `<noscript>` read-only listing remains as a fallback.
@@ -722,9 +727,9 @@ In progress:
 
 Next action:
 
-1. On the production VPS, re-run `scripts/install.sh` (or copy the two `vpsdeck-update.*` units and `systemctl enable --now vpsdeck-update.path`) so browser "Update now" works, and register the GitHub OAuth App + set `VPSDECK_GITHUB_*` env to enable the connect flow in production.
-2. Move longer deployments to a persistent background worker with live progress polling (deployments and self-update apply are both good candidates for live step streaming).
-3. Add allowlisted Node.js, Python, and Go build/restart adapters.
+1. On the production VPS, re-run `scripts/install.sh` so the new managed reverse-proxy bridge and `127.0.0.1:7788` private panel bind are installed, then open `/domains` and create/apply the real panel/project routes.
+2. Register the GitHub OAuth App + set `VPSDECK_GITHUB_*` env to enable the connect flow in production.
+3. Move longer deployments to a persistent background worker with live progress polling, then add allowlisted Node.js, Python, and Go build/restart adapters.
 
 Known blockers:
 
@@ -751,6 +756,8 @@ Decisions made:
 - GitHub import accepts only credential-free `https://github.com/owner/repository` URLs in this release.
 - Git deployment never resets or force-checks out files. It refuses tracked local changes and uses `fetch` plus `merge --ff-only`.
 - `.env` is allowed to remain untracked so visual environment edits do not block a normal deployment.
+- Reverse proxy routes are the only supported public exposure path for panel/project web traffic. Generated configs live under `/etc/nginx/deploynest`, Nginx reads them through `/etc/nginx/sites-enabled/vpsdeck-managed.conf`, and VPSDeck never edits unrelated Nginx site files.
+- The panel route target is the configured private loopback bind. Fresh production installs prefer `127.0.0.1:7788`; local development config keeps the panel route target on `127.0.0.1:8080`.
 
 Decisions still open:
 
@@ -797,6 +804,9 @@ Current local configuration:
 - Managed project root: `./managed-apps`
 - Edit backups: `./data/backups/file-edits`
 - Bind address: `127.0.0.1:8080`
+- Local reverse-proxy panel target: `127.0.0.1:8080`
+- Reverse-proxy internal project port pool: `31000-31999`
+- Managed Nginx paths: `/etc/nginx/deploynest/sites-available`, `/etc/nginx/deploynest/sites-enabled`, bridge `/etc/nginx/sites-enabled/vpsdeck-managed.conf`
 - Local admin username: `admin`
 - Live test data: one registered project named `Live Smoke App`
 - Current verified database state: 1 user, 2 projects (`Live Smoke App` and running `aigenius-full`)

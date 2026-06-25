@@ -22,6 +22,7 @@ type Config struct {
 	Monitoring   MonitoringConfig   `yaml:"monitoring"`
 	Docker       DockerConfig       `yaml:"docker"`
 	Updates      UpdateConfig       `yaml:"updates"`
+	ReverseProxy ReverseProxyConfig `yaml:"reverse_proxy"`
 	Integrations IntegrationsConfig `yaml:"integrations"`
 }
 
@@ -87,6 +88,18 @@ type DeploymentConfig struct {
 	Enabled        bool   `yaml:"enabled"`
 	GitCommand     string `yaml:"git_command"`
 	TimeoutSeconds int    `yaml:"timeout_seconds"`
+}
+
+type ReverseProxyConfig struct {
+	PanelBindHost       string `yaml:"panel_bind_host"`
+	PanelBindPort       int    `yaml:"panel_bind_port"`
+	InternalPortStart   int    `yaml:"internal_port_start"`
+	InternalPortEnd     int    `yaml:"internal_port_end"`
+	NginxSitesAvailable string `yaml:"nginx_sites_available"`
+	NginxSitesEnabled   string `yaml:"nginx_sites_enabled"`
+	NginxBridgeInclude  string `yaml:"nginx_bridge_include"`
+	NginxCommand        string `yaml:"nginx_command"`
+	SystemctlCommand    string `yaml:"systemctl_command"`
 }
 
 type MonitoringConfig struct {
@@ -178,6 +191,15 @@ func Default() Config {
 			GitCommand:           "git",
 			CheckIntervalMinutes: 30,
 		},
+		ReverseProxy: ReverseProxyConfig{
+			InternalPortStart:   31000,
+			InternalPortEnd:     31999,
+			NginxSitesAvailable: "/etc/nginx/deploynest/sites-available",
+			NginxSitesEnabled:   "/etc/nginx/deploynest/sites-enabled",
+			NginxBridgeInclude:  "/etc/nginx/sites-enabled/vpsdeck-managed.conf",
+			NginxCommand:        "nginx",
+			SystemctlCommand:    "systemctl",
+		},
 		Integrations: IntegrationsConfig{
 			GitHub: GitHubConfig{
 				Enabled: false,
@@ -216,6 +238,9 @@ func (c *Config) normalize() error {
 		c.App.Name = "VPSDeck"
 	}
 	if strings.TrimSpace(c.App.Host) == "" {
+		c.App.Host = "127.0.0.1"
+	}
+	if c.App.Environment == "production" && c.App.Host == "0.0.0.0" {
 		c.App.Host = "127.0.0.1"
 	}
 	if c.App.Port < 1 || c.App.Port > 65535 {
@@ -312,6 +337,9 @@ func (c *Config) normalize() error {
 	if err := c.normalizeUpdates(); err != nil {
 		return err
 	}
+	if err := c.normalizeReverseProxy(); err != nil {
+		return err
+	}
 	if err := c.normalizeGitHub(); err != nil {
 		return err
 	}
@@ -382,6 +410,60 @@ func (c *Config) normalizeUpdates() error {
 	return nil
 }
 
+func (c *Config) normalizeReverseProxy() error {
+	rp := &c.ReverseProxy
+	rp.PanelBindHost = strings.TrimSpace(rp.PanelBindHost)
+	if rp.PanelBindHost == "" {
+		rp.PanelBindHost = c.App.Host
+	}
+	if c.App.Environment == "production" && rp.PanelBindHost == "0.0.0.0" {
+		rp.PanelBindHost = "127.0.0.1"
+	}
+	if rp.PanelBindPort == 0 {
+		rp.PanelBindPort = c.App.Port
+	}
+	if rp.PanelBindPort < 1 || rp.PanelBindPort > 65535 {
+		return errors.New("reverse_proxy.panel_bind_port must be between 1 and 65535")
+	}
+	if rp.InternalPortStart == 0 {
+		rp.InternalPortStart = 31000
+	}
+	if rp.InternalPortEnd == 0 {
+		rp.InternalPortEnd = 31999
+	}
+	if rp.InternalPortStart < 1 || rp.InternalPortEnd > 65535 || rp.InternalPortStart > rp.InternalPortEnd {
+		return errors.New("reverse_proxy internal port pool must be a valid port range")
+	}
+	if strings.TrimSpace(rp.NginxSitesAvailable) == "" {
+		rp.NginxSitesAvailable = "/etc/nginx/deploynest/sites-available"
+	}
+	if strings.TrimSpace(rp.NginxSitesEnabled) == "" {
+		rp.NginxSitesEnabled = "/etc/nginx/deploynest/sites-enabled"
+	}
+	if strings.TrimSpace(rp.NginxBridgeInclude) == "" {
+		rp.NginxBridgeInclude = "/etc/nginx/sites-enabled/vpsdeck-managed.conf"
+	}
+	var err error
+	if rp.NginxSitesAvailable, err = absolutePath(rp.NginxSitesAvailable); err != nil {
+		return fmt.Errorf("reverse proxy sites-available path: %w", err)
+	}
+	if rp.NginxSitesEnabled, err = absolutePath(rp.NginxSitesEnabled); err != nil {
+		return fmt.Errorf("reverse proxy sites-enabled path: %w", err)
+	}
+	if rp.NginxBridgeInclude, err = absolutePath(rp.NginxBridgeInclude); err != nil {
+		return fmt.Errorf("reverse proxy bridge include path: %w", err)
+	}
+	rp.NginxCommand = strings.TrimSpace(rp.NginxCommand)
+	if rp.NginxCommand == "" {
+		rp.NginxCommand = "nginx"
+	}
+	rp.SystemctlCommand = strings.TrimSpace(rp.SystemctlCommand)
+	if rp.SystemctlCommand == "" {
+		rp.SystemctlCommand = "systemctl"
+	}
+	return nil
+}
+
 func absolutePath(path string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -397,6 +479,14 @@ func applyEnvironment(cfg *Config) {
 	if value := os.Getenv("VPSDECK_PORT"); value != "" {
 		if port, err := strconv.Atoi(value); err == nil {
 			cfg.App.Port = port
+		}
+	}
+	if value := os.Getenv("VPSDECK_REVERSE_PROXY_PANEL_BIND_HOST"); value != "" {
+		cfg.ReverseProxy.PanelBindHost = value
+	}
+	if value := os.Getenv("VPSDECK_REVERSE_PROXY_PANEL_BIND_PORT"); value != "" {
+		if port, err := strconv.Atoi(value); err == nil {
+			cfg.ReverseProxy.PanelBindPort = port
 		}
 	}
 	if value := os.Getenv("VPSDECK_DATABASE"); value != "" {

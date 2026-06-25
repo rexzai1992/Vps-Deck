@@ -8,8 +8,13 @@ SOURCE_DIR="/opt/vpsdeck/src"
 CONFIG_DIR="/etc/vpsdeck"
 CONFIG_PATH="$CONFIG_DIR/config.yaml"
 SERVICE_PATH="/etc/systemd/system/vpsdeck.service"
-NGINX_AVAILABLE="/etc/nginx/sites-available/vpsdeck"
-NGINX_ENABLED="/etc/nginx/sites-enabled/vpsdeck"
+PANEL_HOST="${VPSDECK_PANEL_HOST:-127.0.0.1}"
+PANEL_PORT="${VPSDECK_PANEL_PORT:-7788}"
+NGINX_MANAGED_AVAILABLE="/etc/nginx/deploynest/sites-available"
+NGINX_MANAGED_ENABLED="/etc/nginx/deploynest/sites-enabled"
+NGINX_BRIDGE="/etc/nginx/sites-enabled/vpsdeck-managed.conf"
+NGINX_PANEL_AVAILABLE="$NGINX_MANAGED_AVAILABLE/vpsdeck-panel.conf"
+NGINX_PANEL_ENABLED="$NGINX_MANAGED_ENABLED/vpsdeck-panel.conf"
 
 log() {
   printf '[VPSDeck] %s\n' "$*"
@@ -27,6 +32,46 @@ require_root() {
 validate_domain() {
   [[ "$DOMAIN" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$ ]] ||
     fail "invalid domain: $DOMAIN"
+}
+
+port_in_use() {
+  local port="$1"
+  ss -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "(^|:)${port}$"
+}
+
+config_value_in_app() {
+  local key="$1"
+  awk -v key="$key" '
+    $1 == "app:" { in_app = 1; next }
+    in_app && $0 ~ /^[^[:space:]]/ { in_app = 0 }
+    in_app && $1 == (key ":") {
+      value = $2
+      gsub(/"/, "", value)
+      print value
+      exit
+    }
+  ' "$CONFIG_PATH"
+}
+
+prepare_panel_bind() {
+  if [[ -f "$CONFIG_PATH" ]]; then
+    PANEL_HOST="$(config_value_in_app host || true)"
+    PANEL_PORT="$(config_value_in_app port || true)"
+    PANEL_HOST="${PANEL_HOST:-127.0.0.1}"
+    PANEL_PORT="${PANEL_PORT:-8080}"
+    if [[ "$PANEL_HOST" == "0.0.0.0" ]]; then
+      PANEL_HOST="127.0.0.1"
+    fi
+    log "Using existing panel bind target $PANEL_HOST:$PANEL_PORT"
+    return
+  fi
+
+  [[ "$PANEL_HOST" != "0.0.0.0" ]] || fail "production panel bind host must not be 0.0.0.0"
+  while port_in_use "$PANEL_PORT"; do
+    PANEL_PORT=$((PANEL_PORT + 1))
+    [[ "$PANEL_PORT" -le 65535 ]] || fail "no available localhost port for VPSDeck panel"
+  done
+  log "Selected panel bind target $PANEL_HOST:$PANEL_PORT"
 }
 
 install_packages() {
@@ -72,7 +117,7 @@ create_account_and_directories() {
 
   install -d -m 0750 -o vpsdeck -g vpsdeck \
     /var/lib/vpsdeck /var/log/vpsdeck /var/backups/vpsdeck /opt/apps
-  install -d -m 0755 /opt/vpsdeck "$CONFIG_DIR"
+  install -d -m 0755 /opt/vpsdeck "$CONFIG_DIR" "$NGINX_MANAGED_AVAILABLE" "$NGINX_MANAGED_ENABLED"
 }
 
 checkout_source() {
@@ -116,8 +161,8 @@ write_configuration() {
   cat >"$CONFIG_PATH" <<EOF
 app:
   name: VPSDeck
-  host: 127.0.0.1
-  port: 8080
+  host: ${PANEL_HOST}
+  port: ${PANEL_PORT}
   base_url: https://${DOMAIN}
   environment: production
 
@@ -147,6 +192,17 @@ deployments:
   enabled: true
   git_command: git
   timeout_seconds: 300
+
+reverse_proxy:
+  panel_bind_host: ${PANEL_HOST}
+  panel_bind_port: ${PANEL_PORT}
+  internal_port_start: 31000
+  internal_port_end: 31999
+  nginx_sites_available: ${NGINX_MANAGED_AVAILABLE}
+  nginx_sites_enabled: ${NGINX_MANAGED_ENABLED}
+  nginx_bridge_include: ${NGINX_BRIDGE}
+  nginx_command: nginx
+  systemctl_command: systemctl
 
 updates:
   enabled: true
@@ -239,10 +295,44 @@ install_service() {
 }
 
 install_nginx_site() {
-  sed "s/__VPSDECK_DOMAIN__/$DOMAIN/g" "$SOURCE_DIR/scripts/nginx-vpsdeck.conf" >"$NGINX_AVAILABLE"
-  ln -sfn "$NGINX_AVAILABLE" "$NGINX_ENABLED"
-  nginx -t
+  local backup_dir bridge_backup available_backup enabled_target
+  backup_dir="$(mktemp -d)"
+  trap 'rm -rf "$backup_dir"' RETURN
+
+  if [[ -f "$NGINX_BRIDGE" ]]; then
+    cp "$NGINX_BRIDGE" "$backup_dir/bridge"
+  fi
+  if [[ -f "$NGINX_PANEL_AVAILABLE" ]]; then
+    cp "$NGINX_PANEL_AVAILABLE" "$backup_dir/panel"
+  fi
+  if [[ -L "$NGINX_PANEL_ENABLED" ]]; then
+    enabled_target="$(readlink "$NGINX_PANEL_ENABLED")"
+  fi
+
+  install -d -m 0755 "$NGINX_MANAGED_AVAILABLE" "$NGINX_MANAGED_ENABLED" "$(dirname "$NGINX_BRIDGE")"
+  cat >"$NGINX_BRIDGE" <<EOF
+# Managed by VPSDeck. Do not edit manually.
+include ${NGINX_MANAGED_ENABLED}/*.conf;
+EOF
+
+  sed \
+    -e "s/__VPSDECK_DOMAIN__/$DOMAIN/g" \
+    -e "s/__VPSDECK_PANEL_HOST__/$PANEL_HOST/g" \
+    -e "s/__VPSDECK_PANEL_PORT__/$PANEL_PORT/g" \
+    "$SOURCE_DIR/scripts/nginx-vpsdeck.conf" >"$NGINX_PANEL_AVAILABLE"
+  ln -sfn "$NGINX_PANEL_AVAILABLE" "$NGINX_PANEL_ENABLED"
+
+  if ! nginx -t; then
+    log "Rolling back managed Nginx config after failed nginx -t"
+    rm -f "$NGINX_BRIDGE" "$NGINX_PANEL_AVAILABLE" "$NGINX_PANEL_ENABLED"
+    if [[ -f "$backup_dir/bridge" ]]; then cp "$backup_dir/bridge" "$NGINX_BRIDGE"; fi
+    if [[ -f "$backup_dir/panel" ]]; then cp "$backup_dir/panel" "$NGINX_PANEL_AVAILABLE"; fi
+    if [[ -n "${enabled_target:-}" ]]; then ln -sfn "$enabled_target" "$NGINX_PANEL_ENABLED"; fi
+    fail "Nginx configuration test failed"
+  fi
   systemctl reload nginx
+  rm -rf "$backup_dir"
+  trap - RETURN
 }
 
 start_and_verify() {
@@ -250,8 +340,8 @@ start_and_verify() {
   systemctl restart vpsdeck
   local attempt
   for attempt in {1..30}; do
-    if curl -fsS http://127.0.0.1:8080/healthz >/dev/null; then
-      log "VPSDeck is healthy on 127.0.0.1:8080"
+    if curl -fsS "http://${PANEL_HOST}:${PANEL_PORT}/healthz" >/dev/null; then
+      log "VPSDeck is healthy on ${PANEL_HOST}:${PANEL_PORT}"
       return
     fi
     sleep 1
@@ -265,6 +355,15 @@ print_next_steps() {
 
 VPSDeck is installed.
 
+Panel:
+  Local bind target: http://${PANEL_HOST}:${PANEL_PORT}
+  Public URL: https://${DOMAIN}
+
+Managed Nginx:
+  sites-available: ${NGINX_MANAGED_AVAILABLE}
+  sites-enabled: ${NGINX_MANAGED_ENABLED}
+  bridge include: ${NGINX_BRIDGE}
+
 DNS:
   Create an A record: ${DOMAIN} -> $(curl -fsS https://api.ipify.org || hostname -I | awk '{print $1}')
 
@@ -273,6 +372,9 @@ After DNS resolves to this VPS, enable HTTPS:
 
 Then open:
   https://${DOMAIN}
+
+Temporary local health URL:
+  http://${PANEL_HOST}:${PANEL_PORT}/healthz
 
 Connect GitHub (optional):
   Create a GitHub OAuth App with callback https://${DOMAIN}/integrations/github/callback
@@ -291,6 +393,7 @@ create_account_and_directories
 checkout_source
 configure_git_safe_directory
 build_binary
+prepare_panel_bind
 write_configuration
 write_github_env_template
 bootstrap_administrator

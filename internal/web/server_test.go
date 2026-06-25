@@ -1,6 +1,7 @@
 package web
 
 import (
+	"database/sql"
 	"io"
 	"log/slog"
 	"net/http"
@@ -196,6 +197,78 @@ func TestLoginProjectRegistrationAndAudit(t *testing.T) {
 	}
 	if !loginFound || !projectFound || !envFound || !fileFound {
 		t.Fatalf("missing audit entries: login=%v project=%v env=%v file=%v", loginFound, projectFound, envFound, fileFound)
+	}
+}
+
+func TestDomainsRequireLoginRenderRoutesAndRejectInvalidHostname(t *testing.T) {
+	handler, db, projectPath := testServer(t)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	anonymous := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	response, err := anonymous.Get(server.URL + "/domains")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusSeeOther || !strings.HasPrefix(response.Header.Get("Location"), "/login") {
+		t.Fatalf("anonymous domains request should redirect to login, got %d %q", response.StatusCode, response.Header.Get("Location"))
+	}
+
+	client := loginTestClient(t, server.URL)
+	projectID, err := db.CreateProject(t.Context(), database.Project{
+		Name:       "Domain App",
+		Type:       "custom",
+		WorkingDir: filepath.Join(projectPath, "domain-app"),
+		Port:       39999,
+		Status:     "unknown",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreateProxyRoute(t.Context(), database.ProxyRoute{
+		Hostname:     "domains.example.com",
+		ProjectID:    sqlNullInt64(projectID),
+		TargetType:   "project",
+		TargetHost:   "127.0.0.1",
+		TargetPort:   39999,
+		TargetScheme: "http",
+		SSLStatus:    "inactive",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	page, err := client.Get(server.URL + "/domains")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(page.Body)
+	page.Body.Close()
+	if page.StatusCode != http.StatusOK || !strings.Contains(string(body), "domains.example.com") || !strings.Contains(string(body), "Target port is not listening") {
+		t.Fatalf("domains page did not render route: status=%d body=%s", page.StatusCode, body)
+	}
+
+	csrf := cookieValue(t, client.Jar, server.URL, csrfCookie)
+	invalid, err := client.PostForm(server.URL+"/domains", url.Values{
+		"csrf_token":  {csrf},
+		"hostname":    {"https://bad.example.com/path"},
+		"target_type": {"panel"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalidBody, _ := io.ReadAll(invalid.Body)
+	invalid.Body.Close()
+	if invalid.StatusCode != http.StatusOK || !strings.Contains(string(invalidBody), "hostname must be a plain domain") {
+		t.Fatalf("invalid hostname was not rejected clearly: status=%d body=%s", invalid.StatusCode, invalidBody)
+	}
+	routes, err := db.ListProxyRoutes(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(routes) != 1 {
+		t.Fatalf("invalid create should not add a route, got %#v", routes)
 	}
 }
 
@@ -542,4 +615,33 @@ func cookieValue(t *testing.T, jar http.CookieJar, rawURL, name string) string {
 	}
 	t.Fatalf("cookie %q not found", name)
 	return ""
+}
+
+func loginTestClient(t *testing.T, serverURL string) *http.Client {
+	t.Helper()
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Jar: jar}
+	page, err := client.Get(serverURL + "/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page.Body.Close()
+	csrf := cookieValue(t, jar, serverURL, csrfCookie)
+	response, err := client.PostForm(serverURL+"/login", url.Values{
+		"csrf_token": {csrf},
+		"username":   {"admin"},
+		"password":   {"StrongPassword123"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	return client
+}
+
+func sqlNullInt64(value int64) sql.NullInt64 {
+	return sql.NullInt64{Int64: value, Valid: true}
 }

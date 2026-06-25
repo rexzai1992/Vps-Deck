@@ -13,42 +13,47 @@
       </div>
       <div class="alert ollama-message" data-ollama-message>{{.Data.Ollama.Message}}</div>
 
-      <section class="panel monitor-section ollama-playground" data-ollama-playground>
-        <div class="panel-heading"><div><h2>Test a model</h2><p>Send a prompt to a loaded or installed model and see the response.</p></div></div>
-        <div class="playground-controls">
-          <label class="stack"><span>Model</span><select data-ollama-model><option value="">No models available</option></select></label>
-          <label class="stack span-two"><span>Prompt</span><textarea data-ollama-prompt rows="3" placeholder="Ask the model something…"></textarea></label>
-        </div>
-        <div class="action-row"><button class="button button-primary" type="button" data-ollama-run>Run prompt</button><span class="muted" data-ollama-run-status></span></div>
-        <pre class="ollama-output" data-ollama-output hidden></pre>
-      </section>
-
-      <section class="panel monitor-section" data-ollama-pull-panel>
-        <div class="panel-heading"><div><h2>Pull a model</h2><p>Download a model by name from the Ollama library (this can be several GB).</p></div></div>
-        <div class="inline-form"><input data-ollama-pull-name placeholder="e.g. llama3.2  ·  qwen2.5:1.5b  ·  gemma3:4b" autocomplete="off"><button class="button button-primary" type="button" data-ollama-pull>Pull model</button></div>
-        <div class="pull-list" data-ollama-pull-list></div>
-      </section>
-
-      <div class="metric-grid monitor-metrics">
       <div class="metric-grid monitor-metrics">
         <article class="metric"><div class="metric-icon violet">VER</div><div><span>Version</span><strong data-ollama-version>{{if .Data.Ollama.Version}}{{.Data.Ollama.Version}}{{else}}—{{end}}</strong></div></article>
         <article class="metric"><div class="metric-icon cyan">ALL</div><div><span>Installed models</span><strong data-ollama-installed>{{.Data.Ollama.InstalledCount}}</strong></div></article>
         <article class="metric"><div class="metric-icon green">RUN</div><div><span>Loaded models</span><strong data-ollama-running>{{.Data.Ollama.RunningCount}}</strong></div></article>
         <article class="metric"><div class="metric-icon amber">RAM</div><div><span>Loaded VRAM</span><strong data-ollama-vram>{{bytes .Data.Ollama.TotalVRAM}}</strong></div></article>
       </div>
-      <section class="panel monitor-section">
-        <div class="panel-heading"><div><h2>Loaded models</h2><p>Models currently held in memory.</p></div></div>
-        <div class="model-grid" data-ollama-running-list>
-          {{range .Data.Ollama.RunningModels}}<article class="model-card"><h3>{{.Name}}</h3><p>{{.Details.ParameterSize}} · {{.Details.QuantizationLevel}}</p><dl><div><dt>VRAM</dt><dd>{{bytes .SizeVRAM}}</dd></div><div><dt>Context</dt><dd>{{.ContextLength}}</dd></div><div><dt>Expires</dt><dd>{{.ExpiresAt.Format "15:04:05"}}</dd></div></dl></article>{{else}}<p class="muted">No models are loaded.</p>{{end}}
-        </div>
-      </section>
-      <section class="panel monitor-section">
-        <div class="panel-heading"><div><h2>Installed models</h2><p>Models available to this Ollama server.</p></div></div>
-        <div class="model-grid" data-ollama-installed-list>
-          {{range .Data.Ollama.InstalledModels}}<article class="model-card"><h3>{{.Name}}</h3><p>{{.Details.ParameterSize}} · {{.Details.QuantizationLevel}}</p><dl><div><dt>Size</dt><dd>{{bytes .Size}}</dd></div><div><dt>Family</dt><dd>{{.Details.Family}}</dd></div></dl></article>{{else}}<p class="muted">No installed models reported.</p>{{end}}
-        </div>
-      </section>
-      <section class="panel monitor-section">
+
+      <div class="ollama-workspace">
+        <section class="panel ollama-playground" data-ollama-playground>
+          <div class="panel-heading"><div><h2>Test a model</h2><p>Run a quick prompt against a loaded or installed model.</p></div></div>
+          <div class="playground-controls">
+            <label class="stack"><span>Model</span><select data-ollama-model><option value="">No models available</option></select></label>
+            <label class="stack"><span>Prompt</span><textarea data-ollama-prompt rows="3" placeholder="Ask the model something..."></textarea></label>
+          </div>
+          <div class="action-row"><button class="button button-primary" type="button" data-ollama-run>Run prompt</button><span class="muted" data-ollama-run-status></span></div>
+          <pre class="ollama-output" data-ollama-output hidden></pre>
+        </section>
+
+        <section class="panel" data-ollama-pull-panel>
+          <div class="panel-heading"><div><h2>Pull model</h2><p>Download a model by library name.</p></div></div>
+          <div class="inline-form ollama-pull-form"><input data-ollama-pull-name placeholder="llama3.2, qwen2.5:1.5b, gemma3:4b" autocomplete="off"><button class="button button-primary" type="button" data-ollama-pull>Pull</button></div>
+          <div class="pull-list" data-ollama-pull-list></div>
+        </section>
+      </div>
+
+      <div class="ollama-model-layout monitor-section">
+        <section class="panel">
+          <div class="panel-heading"><div><h2>Loaded models</h2><p>Models currently held in memory.</p></div></div>
+          <div class="model-grid compact" data-ollama-running-list>
+            {{range .Data.Ollama.RunningModels}}<article class="model-card"><h3>{{.Name}}</h3><p>{{.Details.ParameterSize}} · {{.Details.QuantizationLevel}}</p><dl><div><dt>VRAM</dt><dd>{{bytes .SizeVRAM}}</dd></div><div><dt>Context</dt><dd>{{.ContextLength}}</dd></div><div><dt>Expires</dt><dd>{{.ExpiresAt.Format "15:04:05"}}</dd></div></dl></article>{{else}}<p class="muted">No models are loaded.</p>{{end}}
+          </div>
+        </section>
+        <section class="panel">
+          <div class="panel-heading"><div><h2>Installed models</h2><p>Models available to this Ollama server.</p></div></div>
+          <div class="model-grid compact" data-ollama-installed-list>
+            {{range .Data.Ollama.InstalledModels}}<article class="model-card"><h3>{{.Name}}</h3><p>{{.Details.ParameterSize}} · {{.Details.QuantizationLevel}}</p><dl><div><dt>Size</dt><dd>{{bytes .Size}}</dd></div><div><dt>Family</dt><dd>{{.Details.Family}}</dd></div></dl></article>{{else}}<p class="muted">No installed models reported.</p>{{end}}
+          </div>
+        </section>
+      </div>
+
+      <section class="panel monitor-section api-panel">
         <div class="panel-heading"><div><h2>API reference</h2><p>Ollama's HTTP API on this server. <a class="doc-link" href="https://github.com/ollama/ollama/blob/main/docs/api.md" target="_blank" rel="noreferrer">Full docs ↗</a></p></div></div>
         <div class="api-docs">
           <article><h3>List installed models</h3><pre id="api-tags">curl {{.Data.Ollama.BaseURL}}/api/tags</pre><button class="button button-small" type="button" data-copy-target="api-tags">Copy</button></article>

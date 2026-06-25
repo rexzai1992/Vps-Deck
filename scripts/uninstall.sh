@@ -18,7 +18,11 @@ systemctl disable --now vpsdeck 2>/dev/null || true
 rm -f /etc/systemd/system/vpsdeck.service
 systemctl daemon-reload
 
-rm -f /etc/nginx/sites-enabled/vpsdeck /etc/nginx/sites-available/vpsdeck
+rm -f \
+  /etc/nginx/sites-enabled/vpsdeck \
+  /etc/nginx/sites-available/vpsdeck \
+  /etc/nginx/sites-enabled/vpsdeck-managed.conf
+rm -rf /etc/nginx/deploynest
 if nginx -t >/dev/null 2>&1; then
   systemctl reload nginx
 fi

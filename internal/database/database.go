@@ -52,6 +52,21 @@ type ProjectSource struct {
 	UpdatedAt      time.Time
 }
 
+type ProxyRoute struct {
+	ID           int64
+	Hostname     string
+	ProjectID    sql.NullInt64
+	TargetType   string
+	TargetHost   string
+	TargetPort   int
+	TargetScheme string
+	SSLStatus    string
+	Enabled      bool
+	LastError    string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
 type GitHubAccount struct {
 	UserID            int64
 	Login             string
@@ -240,6 +255,30 @@ func (db *DB) Migrate(ctx context.Context) error {
 		`,
 		`
 		ALTER TABLE sessions ADD COLUMN advanced_until DATETIME;
+		`,
+		`
+		CREATE TABLE proxy_routes (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			hostname TEXT NOT NULL UNIQUE,
+			project_id INTEGER,
+			target_type TEXT NOT NULL,
+			target_host TEXT NOT NULL,
+			target_port INTEGER NOT NULL,
+			target_scheme TEXT NOT NULL DEFAULT 'http',
+			ssl_status TEXT NOT NULL DEFAULT 'inactive',
+			enabled BOOLEAN NOT NULL DEFAULT 1,
+			last_error TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE SET NULL
+		);
+
+		CREATE INDEX idx_proxy_routes_project_id ON proxy_routes(project_id);
+
+		INSERT OR IGNORE INTO proxy_routes(hostname, project_id, target_type, target_host, target_port, target_scheme, enabled)
+		SELECT domain, id, 'project', '127.0.0.1', port, 'http', 1
+		FROM projects
+		WHERE domain <> '' AND port > 0;
 		`,
 	}
 
@@ -442,6 +481,17 @@ func (db *DB) UpdateProjectRuntime(ctx context.Context, id int64, status string,
 	return err
 }
 
+func (db *DB) UpdateProjectDomainPort(ctx context.Context, id int64, domain string, port int) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE projects
+		SET domain = CASE WHEN ? <> '' THEN ? ELSE domain END,
+		    port = CASE WHEN ? > 0 THEN ? ELSE port END,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?
+	`, domain, domain, port, port, id)
+	return err
+}
+
 func (db *DB) CreateProjectSource(ctx context.Context, source ProjectSource) error {
 	_, err := db.ExecContext(ctx, `
 		INSERT INTO project_sources(
@@ -472,6 +522,109 @@ func (db *DB) ProjectSourceByProjectID(ctx context.Context, projectID int64) (Pr
 		source.LastDeployedAt = &value
 	}
 	return source, err
+}
+
+func (db *DB) CreateProxyRoute(ctx context.Context, route ProxyRoute) (int64, error) {
+	var projectID any
+	if route.ProjectID.Valid {
+		projectID = route.ProjectID.Int64
+	}
+	result, err := db.ExecContext(ctx, `
+		INSERT INTO proxy_routes(
+			hostname, project_id, target_type, target_host, target_port,
+			target_scheme, ssl_status, enabled, last_error
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, route.Hostname, projectID, route.TargetType, route.TargetHost, route.TargetPort,
+		route.TargetScheme, route.SSLStatus, route.Enabled, route.LastError)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+func (db *DB) ProxyRouteByID(ctx context.Context, id int64) (ProxyRoute, error) {
+	var route ProxyRoute
+	err := db.QueryRowContext(ctx, `
+		SELECT id, hostname, project_id, target_type, target_host, target_port,
+		       target_scheme, ssl_status, enabled, last_error, created_at, updated_at
+		FROM proxy_routes
+		WHERE id = ?
+	`, id).Scan(
+		&route.ID, &route.Hostname, &route.ProjectID, &route.TargetType, &route.TargetHost,
+		&route.TargetPort, &route.TargetScheme, &route.SSLStatus, &route.Enabled,
+		&route.LastError, &route.CreatedAt, &route.UpdatedAt,
+	)
+	return route, err
+}
+
+func (db *DB) ListProxyRoutes(ctx context.Context) ([]ProxyRoute, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, hostname, project_id, target_type, target_host, target_port,
+		       target_scheme, ssl_status, enabled, last_error, created_at, updated_at
+		FROM proxy_routes
+		ORDER BY hostname
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var routes []ProxyRoute
+	for rows.Next() {
+		var route ProxyRoute
+		if err := rows.Scan(
+			&route.ID, &route.Hostname, &route.ProjectID, &route.TargetType,
+			&route.TargetHost, &route.TargetPort, &route.TargetScheme,
+			&route.SSLStatus, &route.Enabled, &route.LastError,
+			&route.CreatedAt, &route.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		routes = append(routes, route)
+	}
+	return routes, rows.Err()
+}
+
+func (db *DB) SetProxyRouteLastError(ctx context.Context, id int64, lastError string) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE proxy_routes
+		SET last_error = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?
+	`, lastError, id)
+	return err
+}
+
+func (db *DB) MarkProxyRouteApplied(ctx context.Context, id int64) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE proxy_routes
+		SET enabled = 1, last_error = '', updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?
+	`, id)
+	return err
+}
+
+func (db *DB) DisableProxyRoute(ctx context.Context, id int64) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE proxy_routes
+		SET enabled = 0, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?
+	`, id)
+	return err
+}
+
+func (db *DB) DeleteProxyRoute(ctx context.Context, id int64) error {
+	result, err := db.ExecContext(ctx, "DELETE FROM proxy_routes WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (db *DB) UpsertGitHubAccount(ctx context.Context, account GitHubAccount) error {
